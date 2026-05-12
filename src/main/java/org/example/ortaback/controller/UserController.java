@@ -7,11 +7,13 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.geo.LocationUpdateRequestDto;
 import org.example.ortaback.dto.request.InterestRequestDto;
 import org.example.ortaback.dto.request.UserProfileUpdateRequestDto;
+import org.example.ortaback.dto.response.AvatarUploadResponseDto;
 import org.example.ortaback.dto.response.CategoryDto;
 import org.example.ortaback.dto.response.UserProfileDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.service.UserService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,8 +22,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -74,6 +78,25 @@ public class UserController {
     public void removeInterest(@PathVariable Long categoryId,
                                @AuthenticationPrincipal User currentUser) {
         userService.removeInterest(currentUser.getId(), categoryId);
+    }
+
+    // -----------------------------------------------------------------------
+    // Аватар (S3)
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Загрузить аватар (multipart/form-data, поле `file`)")
+    @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AvatarUploadResponseDto uploadAvatar(@RequestParam("file") MultipartFile file,
+                                                @AuthenticationPrincipal User currentUser) {
+        String url = userService.uploadAvatar(currentUser.getId(), file);
+        return new AvatarUploadResponseDto(url);
+    }
+
+    @Operation(summary = "Удалить аватар")
+    @DeleteMapping("/me/avatar")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteAvatar(@AuthenticationPrincipal User currentUser) {
+        userService.deleteAvatar(currentUser.getId());
     }
 
     // -----------------------------------------------------------------------

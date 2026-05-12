@@ -3,6 +3,7 @@ package org.example.ortaback.service;
 import org.example.ortaback.dto.request.UserProfileUpdateRequestDto;
 import org.example.ortaback.dto.response.CategoryDto;
 import org.example.ortaback.dto.response.UserProfileDto;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -31,4 +32,18 @@ public interface UserService {
     void addInterest(Long userId, Long categoryId);
 
     void removeInterest(Long userId, Long categoryId);
+
+    /**
+     * Загружает аватар пользователя в S3, удаляет предыдущий (best-effort)
+     * и сохраняет новый URL в {@code User.avatarUrl}.
+     *
+     * @return публичный URL загруженного аватара
+     */
+    String uploadAvatar(Long userId, MultipartFile file);
+
+    /**
+     * Удаляет текущий аватар пользователя из S3 (best-effort) и обнуляет
+     * {@code User.avatarUrl}.
+     */
+    void deleteAvatar(Long userId);
 }

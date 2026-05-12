@@ -15,8 +15,10 @@ import org.example.ortaback.persistence.repository.CategoryRepository;
 import org.example.ortaback.persistence.repository.UserInterestRepository;
 import org.example.ortaback.persistence.repository.UserRepository;
 import org.example.ortaback.service.UserService;
+import org.example.ortaback.storage.StorageService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -25,12 +27,15 @@ import java.util.List;
 @RequiredArgsConstructor
 public class UserServiceImpl implements UserService {
 
+    private static final String AVATARS_FOLDER = "avatars";
+
     private final UserRepository userRepository;
     private final UserInterestRepository userInterestRepository;
     private final CategoryRepository categoryRepository;
     private final CoordinateValidator coordinateValidator;
     private final UserMapper userMapper;
     private final CategoryMapper categoryMapper;
+    private final StorageService storageService;
 
     @Override
     @Transactional
@@ -100,6 +105,36 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void removeInterest(Long userId, Long categoryId) {
         userInterestRepository.deleteByUserIdAndCategoryId(userId, categoryId);
+    }
+
+    @Override
+    @Transactional
+    public String uploadAvatar(Long userId, MultipartFile file) {
+        User user = loadUser(userId);
+
+        // Загружаем новый, потом удаляем старый — если новый загрузился неудачно,
+        // у пользователя остаётся работающий старый аватар.
+        StorageService.UploadedFile uploaded = storageService.upload(file, AVATARS_FOLDER);
+
+        String previousUrl = user.getAvatarUrl();
+        user.setAvatarUrl(uploaded.url());
+
+        if (previousUrl != null && !previousUrl.equals(uploaded.url())) {
+            storageService.deleteByPublicUrl(previousUrl);
+        }
+        return uploaded.url();
+    }
+
+    @Override
+    @Transactional
+    public void deleteAvatar(Long userId) {
+        User user = loadUser(userId);
+        String url = user.getAvatarUrl();
+        if (url == null) {
+            return;
+        }
+        user.setAvatarUrl(null);
+        storageService.deleteByPublicUrl(url);
     }
 
     // -----------------------------------------------------------------------
