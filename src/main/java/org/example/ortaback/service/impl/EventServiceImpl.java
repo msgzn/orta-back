@@ -4,23 +4,39 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.config.GeoProperties;
 import org.example.ortaback.dto.geo.BoundingBoxResultDto;
 import org.example.ortaback.dto.geo.ClusterDto;
+import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.geo.EventMapMarkerDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureDto;
+import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.ParticipantResponseDto;
+import org.example.ortaback.exception.EventStateException;
+import org.example.ortaback.exception.InvalidCoordinatesException;
+import org.example.ortaback.exception.ResourceAlreadyExistsException;
+import org.example.ortaback.exception.ResourceNotFoundException;
 import org.example.ortaback.geo.BoundingBox;
 import org.example.ortaback.geo.CoordinateValidator;
 import org.example.ortaback.geo.GeoJsonConverter;
+import org.example.ortaback.geo.GeoUtils;
 import org.example.ortaback.geo.PrivacyMasker;
 import org.example.ortaback.mapper.EventMapMapper;
+import org.example.ortaback.mapper.ParticipantMapper;
+import org.example.ortaback.persistence.models.Category;
 import org.example.ortaback.persistence.models.Event;
+import org.example.ortaback.persistence.models.EventParticipant;
 import org.example.ortaback.persistence.models.User;
+import org.example.ortaback.persistence.models.enums.EventStatus;
 import org.example.ortaback.persistence.models.enums.LocationPrecision;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
+import org.example.ortaback.persistence.models.enums.UserRole;
 import org.example.ortaback.persistence.projection.EventClusterProjection;
+import org.example.ortaback.persistence.repository.CategoryRepository;
 import org.example.ortaback.persistence.repository.EventParticipantRepository;
 import org.example.ortaback.persistence.repository.EventRepository;
 import org.example.ortaback.service.EventService;
 import org.locationtech.jts.geom.Point;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,46 +45,28 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
-/**
- * Реализация use-case'ов карты.
- *
- * <p>Главные оптимизации, заложенные в маппинг пачкой:
- * <ol>
- *   <li><b>Приватность за одно обращение к БД</b>: тянем
- *       {@code Set<Long> joinedEventIds} один раз для viewer'а вместо
- *       проверки участия per-event.</li>
- *   <li><b>Batched-counts участников</b> через
- *       {@code countActiveParticipantsByEventIds(ids)} — один SQL на всю
- *       выдачу вместо N.</li>
- * </ol>
- *
- * <p>Известный TODO: lazy-load {@code event.getCategory()} даёт N+1 на этапе
- * маппинга. Решим позже: либо native-проекция с JOIN, либо
- * {@code @EntityGraph} на дополнительной derived-методе репозитория для
- * не-нативных запросов.
- */
 @Service
 @RequiredArgsConstructor
 public class EventServiceImpl implements EventService {
 
-    /**
-     * Жёсткий потолок числа фич в одном GeoJSON-ответе — защита фронта от
-     * перегруза.
-     */
     private static final int GEOJSON_MAX_FEATURES = 5000;
 
     private final EventRepository eventRepository;
     private final EventParticipantRepository participantRepository;
+    private final CategoryRepository categoryRepository;
     private final CoordinateValidator coordinateValidator;
     private final PrivacyMasker privacyMasker;
     private final GeoProperties geoProperties;
     private final EventMapMapper mapper;
+    private final ParticipantMapper participantMapper;
 
-    // -----------------------------------------------------------------------
-    // Публичный контракт
-    // -----------------------------------------------------------------------
+    // =======================================================================
+    //  Geo / map
+    // =======================================================================
 
     @Override
     @Transactional(readOnly = true)
@@ -99,7 +97,8 @@ public class EventServiceImpl implements EventService {
         int k = clampClusterCount(total);
         List<EventClusterProjection> clusters = eventRepository.clusterEventsInBoundingBox(
                 bbox.minLat(), bbox.minLng(), bbox.maxLat(), bbox.maxLng(), k);
-        return BoundingBoxResultDto.clusters(total, clusters.stream().map(mapper::toCluster).toList());
+        return BoundingBoxResultDto.clusters(total,
+                clusters.stream().map(mapper::toCluster).toList());
     }
 
     @Override
@@ -108,7 +107,7 @@ public class EventServiceImpl implements EventService {
         long total = eventRepository.countEventsInBoundingBox(
                 bbox.minLat(), bbox.minLng(), bbox.maxLat(), bbox.maxLng());
 
-        // TODO: учесть zoom для подстройки числа кластеров; пока — count-based.
+        // TODO: учесть zoom при выборе числа кластеров.
         int k = clampClusterCount(total);
 
         List<EventClusterProjection> clusters = eventRepository.clusterEventsInBoundingBox(
@@ -121,7 +120,6 @@ public class EventServiceImpl implements EventService {
     public GeoJsonFeatureCollectionDto findGeoJsonInBoundingBox(BoundingBox bbox, User viewer) {
         List<Event> events = eventRepository.findEventsInBoundingBox(
                 bbox.minLat(), bbox.minLng(), bbox.maxLat(), bbox.maxLng());
-
         if (events.size() > GEOJSON_MAX_FEATURES) {
             events = events.subList(0, GEOJSON_MAX_FEATURES);
         }
@@ -135,18 +133,211 @@ public class EventServiceImpl implements EventService {
                         visibleLocationFor(e, viewer, joinedEventIds),
                         counts.getOrDefault(e.getId(), 0L)))
                 .toList();
-
         return GeoJsonConverter.toFeatureCollection(features);
     }
 
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
+    // =======================================================================
+    //  CRUD
+    // =======================================================================
 
-    /**
-     * Маппит пачку событий в маркеры, разово подтягивая
-     * batched-counts участников и список «в чём viewer состоит».
-     */
+    @Override
+    @Transactional
+    public EventDetailDto createEvent(EventCreateRequestDto request, User creator) {
+        coordinateValidator.validateLatLng(request.lat(), request.lng());
+
+        Category category = categoryRepository.findById(request.categoryId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Category not found: id=" + request.categoryId()));
+
+        if (request.minParticipants() != null
+                && request.maxParticipants() != null
+                && request.minParticipants() > request.maxParticipants()) {
+            throw new EventStateException("minParticipants must be ≤ maxParticipants");
+        }
+
+        Event event = Event.builder()
+                .creator(creator)
+                .category(category)
+                .status(EventStatus.ACTIVE)
+                .title(request.title())
+                .description(request.description())
+                .placeName(request.placeName())
+                .address(request.address())
+                .location(GeoUtils.point(request.lat(), request.lng()))
+                .locationPrecision(request.locationPrecision() != null
+                        ? request.locationPrecision()
+                        : LocationPrecision.EXACT)
+                .startTime(request.startTime())
+                .timeDuration(request.timeDuration())
+                .minParticipants(request.minParticipants())
+                .maxParticipants(request.maxParticipants())
+                .pricePerPerson(request.pricePerPerson())
+                .build();
+
+        event = eventRepository.save(event);
+
+        // Creator автоматически в составе.
+        participantRepository.save(EventParticipant.builder()
+                .event(event)
+                .user(creator)
+                .status(ParticipantStatus.JOINED)
+                .build());
+
+        return mapper.toDetail(event, event.getLocation(), 1L);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EventDetailDto getEvent(Long id, User viewer) {
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + id));
+
+        Set<Long> joinedEventIds = joinedEventIdsFor(viewer);
+        Point visibleLocation = visibleLocationFor(event, viewer, joinedEventIds);
+
+        long count = participantRepository.countByEventIdAndStatus(id, ParticipantStatus.JOINED);
+        return mapper.toDetail(event, visibleLocation, count);
+    }
+
+    @Override
+    @Transactional
+    public EventDetailDto updateEvent(Long id, EventUpdateRequestDto request, User actor) {
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + id));
+        requireCreatorOrAdmin(event, actor);
+
+        if (request.title()       != null) event.setTitle(request.title());
+        if (request.description() != null) event.setDescription(request.description());
+        if (request.placeName()   != null) event.setPlaceName(request.placeName());
+        if (request.address()     != null) event.setAddress(request.address());
+
+        // Координаты: либо обе, либо ни одной.
+        if (request.lat() != null || request.lng() != null) {
+            if (request.lat() == null || request.lng() == null) {
+                throw new InvalidCoordinatesException(
+                        "lat and lng must be provided together");
+            }
+            coordinateValidator.validateLatLng(request.lat(), request.lng());
+            event.setLocation(GeoUtils.point(request.lat(), request.lng()));
+        }
+
+        if (request.locationPrecision() != null) event.setLocationPrecision(request.locationPrecision());
+
+        if (request.categoryId() != null) {
+            Category category = categoryRepository.findById(request.categoryId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "Category not found: id=" + request.categoryId()));
+            event.setCategory(category);
+        }
+
+        if (request.startTime()       != null) event.setStartTime(request.startTime());
+        if (request.timeDuration()    != null) event.setTimeDuration(request.timeDuration());
+        if (request.minParticipants() != null) event.setMinParticipants(request.minParticipants());
+        if (request.maxParticipants() != null) event.setMaxParticipants(request.maxParticipants());
+        if (request.pricePerPerson()  != null) event.setPricePerPerson(request.pricePerPerson());
+        if (request.status()          != null) event.setStatus(request.status());
+
+        if (event.getMinParticipants() != null
+                && event.getMaxParticipants() != null
+                && event.getMinParticipants() > event.getMaxParticipants()) {
+            throw new EventStateException("minParticipants must be ≤ maxParticipants");
+        }
+
+        // Dirty checking — entity managed, изменения улетят на commit.
+
+        long count = participantRepository.countByEventIdAndStatus(id, ParticipantStatus.JOINED);
+        // Креатор/admin — всегда видит реальные координаты.
+        return mapper.toDetail(event, event.getLocation(), count);
+    }
+
+    @Override
+    @Transactional
+    public void cancelEvent(Long id, User actor) {
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + id));
+        requireCreatorOrAdmin(event, actor);
+
+        if (event.getStatus() == EventStatus.CANCELED) {
+            // идемпотентно, без шума
+            return;
+        }
+        event.setStatus(EventStatus.CANCELED);
+    }
+
+    // =======================================================================
+    //  Участие
+    // =======================================================================
+
+    @Override
+    @Transactional
+    public void joinEvent(Long eventId, User user) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+
+        if (event.getStatus() != EventStatus.ACTIVE) {
+            throw new EventStateException(
+                    "Cannot join an event with status " + event.getStatus());
+        }
+
+        Optional<EventParticipant> existing = participantRepository.findByEventIdAndUserId(
+                eventId, user.getId());
+
+        if (existing.isPresent()) {
+            EventParticipant p = existing.get();
+            switch (p.getStatus()) {
+                case JOINED -> throw new ResourceAlreadyExistsException(
+                        "Already joined this event");
+                case KICKED -> throw new EventStateException(
+                        "You were removed from this event and cannot rejoin");
+                case LEFT -> {
+                    enforceCapacity(event);
+                    p.setStatus(ParticipantStatus.JOINED);
+                }
+            }
+            return;
+        }
+
+        enforceCapacity(event);
+        participantRepository.save(EventParticipant.builder()
+                .event(event)
+                .user(user)
+                .status(ParticipantStatus.JOINED)
+                .build());
+    }
+
+    @Override
+    @Transactional
+    public void leaveEvent(Long eventId, User user) {
+        EventParticipant p = participantRepository.findByEventIdAndUserId(eventId, user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "Not a participant of event id=" + eventId));
+
+        if (Objects.equals(p.getEvent().getCreator().getId(), user.getId())) {
+            throw new EventStateException(
+                    "The creator cannot leave their own event — cancel it instead");
+        }
+        if (p.getStatus() != ParticipantStatus.JOINED) {
+            // ничего не меняем
+            return;
+        }
+        p.setStatus(ParticipantStatus.LEFT);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ParticipantResponseDto> listParticipants(Long eventId, User viewer) {
+        if (!eventRepository.existsById(eventId)) {
+            throw new ResourceNotFoundException("Event not found: id=" + eventId);
+        }
+        return participantRepository.findByEventId(eventId).stream()
+                .map(participantMapper::toDto)
+                .toList();
+    }
+
+    // =======================================================================
+    //  Helpers
+    // =======================================================================
+
     private List<EventMapMarkerDto> toMarkers(List<Event> events, User viewer) {
         if (events.isEmpty()) {
             return List.of();
@@ -162,21 +353,11 @@ public class EventServiceImpl implements EventService {
                 .toList();
     }
 
-    /**
-     * Решает, какую точку отдать наружу.
-     * <ul>
-     *   <li>{@code EXACT} → как есть;</li>
-     *   <li>{@code APPROXIMATE} + viewer — создатель события → как есть;</li>
-     *   <li>{@code APPROXIMATE} + viewer присоединился → как есть;</li>
-     *   <li>иначе → снэппнутая на сетку точка из {@link PrivacyMasker}.</li>
-     * </ul>
-     */
     private Point visibleLocationFor(Event event, User viewer, Set<Long> joinedEventIds) {
         if (event.getLocationPrecision() == LocationPrecision.EXACT) {
             return event.getLocation();
         }
         if (viewer != null) {
-            // FK достаточно — не триггерит lazy-load (Hibernate возвращает id из прокси).
             Long creatorId = event.getCreator().getId();
             if (viewer.getId().equals(creatorId) || joinedEventIds.contains(event.getId())) {
                 return event.getLocation();
@@ -193,9 +374,6 @@ public class EventServiceImpl implements EventService {
                 viewer.getId(), ParticipantStatus.JOINED));
     }
 
-    /**
-     * Возвращает map {@code eventId → activeParticipantCount} одним SQL.
-     */
     private Map<Long, Long> participantCountsForEvents(Collection<Event> events) {
         if (events.isEmpty()) {
             return Map.of();
@@ -203,17 +381,34 @@ public class EventServiceImpl implements EventService {
         List<Long> ids = events.stream().map(Event::getId).toList();
         Map<Long, Long> result = new HashMap<>();
         for (Object[] row : participantRepository.countActiveParticipantsByEventIds(ids)) {
-            Long eventId = ((Number) row[0]).longValue();
-            Long count   = ((Number) row[1]).longValue();
-            result.put(eventId, count);
+            result.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
         }
         return result;
     }
 
-    /**
-     * Адаптивно выбирает число кластеров: ~50 событий на кластер, ограничено
-     * настройками {@code kmeansMinClusters / kmeansMaxClusters}.
-     */
+    private void enforceCapacity(Event event) {
+        if (event.getMaxParticipants() == null) {
+            return;
+        }
+        long joined = participantRepository.countByEventIdAndStatus(
+                event.getId(), ParticipantStatus.JOINED);
+        if (joined >= event.getMaxParticipants()) {
+            throw new EventStateException("Event is full");
+        }
+    }
+
+    private static void requireCreatorOrAdmin(Event event, User actor) {
+        if (actor == null) {
+            throw new AccessDeniedException("Authentication required");
+        }
+        boolean isCreator = Objects.equals(event.getCreator().getId(), actor.getId());
+        boolean isAdmin = actor.getRole() == UserRole.ADMIN;
+        if (!isCreator && !isAdmin) {
+            throw new AccessDeniedException(
+                    "Only the event creator or an admin can perform this action");
+        }
+    }
+
     private int clampClusterCount(long total) {
         GeoProperties.Clustering c = geoProperties.clustering();
         int desired = (int) Math.max(1L, total / 50L);

@@ -63,6 +63,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
+    @ExceptionHandler(EventStateException.class)
+    public ResponseEntity<ErrorResponseDto> handleEventState(EventStateException ex) {
+        ErrorResponseDto error = ErrorResponseDto.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
     @ExceptionHandler(InvalidCoordinatesException.class)
     public ResponseEntity<ErrorResponseDto> handleInvalidCoordinates(InvalidCoordinatesException ex) {
         ErrorResponseDto error = ErrorResponseDto.builder()
