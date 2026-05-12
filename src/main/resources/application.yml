@@ -2,25 +2,50 @@ spring:
   application:
     name: orta-back
 
+  # ============================================================
+  # Datasource
+  # ============================================================
   datasource:
-    url: jdbc:postgresql://localhost:5432/orta_db
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orta_db}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      pool-name: OrtaHikariPool
 
+  # ============================================================
+  # JPA / Hibernate (PostGIS + pgvector)
+  # ============================================================
   jpa:
     hibernate:
-      ddl-auto: update
-    show-sql: true
+      ddl-auto: validate          # prod-safe; миграции через init.sql / Flyway
+    show-sql: false
+    open-in-view: false
     properties:
       hibernate:
+        # --- В Hibernate 6.x (Spring Boot 3.x) пространственные типы PostGIS
+        # --- поддерживаются стандартным PostgreSQLDialect при наличии
+        # --- hibernate-spatial в classpath. Исторический PostgisPLPGSQLDialect
+        # --- остался в Hibernate 5 и здесь не применяется.
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
-    open-in-view: false
+        jdbc:
+          batch_size: 25
+          time_zone: UTC
+        order_inserts: true
+        order_updates: true
 
+  # ============================================================
+  # Mail
+  # ============================================================
   mail:
-    host: smtp.gmail.com
-    port: 587
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:your-email@gmail.com}
     password: ${MAIL_PASSWORD:your-password}
     properties:
@@ -31,16 +56,95 @@ spring:
             enable: true
             required: true
 
+  # ============================================================
+  # Jackson
+  # ============================================================
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+server:
+  port: ${SERVER_PORT:8080}
+  forward-headers-strategy: framework
+  compression:
+    enabled: true
+    mime-types: application/json,application/geo+json
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# ============================================================
+# Application-specific properties
+# ============================================================
 application:
   security:
     jwt:
       secret-key: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
-      access-token-expiration: 86400000  # 1 day in milliseconds
-      refresh-token-expiration: 604800000 # 7 days in milliseconds
+      access-token-expiration: 86400000    # 1 day
+      refresh-token-expiration: 604800000  # 7 days
+      issuer: orta-back
 
+  geo:
+    # SRID 4326 = WGS 84 (стандарт GPS)
+    srid: 4326
+    # Радиус поиска событий по умолчанию (если у пользователя не задан свой)
+    default-search-radius-km: 10
+    # Максимально допустимый радиус — защита от тяжёлых запросов
+    max-search-radius-km: 100
+    # Порог точек в bbox, при котором фронт сам кластеризует
+    client-cluster-threshold: 1000
+    # Лимит результатов «N ближайших»
+    nearest-events-default-limit: 50
+    nearest-events-max-limit: 200
+    # Параметры серверной кластеризации (ST_ClusterKMeans / ST_ClusterDBSCAN)
+    clustering:
+      enabled: true
+      algorithm: KMEANS            # KMEANS | DBSCAN
+      dbscan-eps-meters: 250
+      dbscan-min-points: 3
+      kmeans-min-clusters: 5
+      kmeans-max-clusters: 50
+    # Приватность: смещение координат для событий с location_precision=APPROXIMATE
+    privacy:
+      approximate-grid-meters: 500   # ST_SnapToGrid step
+
+  pagination:
+    default-page-size: 20
+    max-page-size: 100
+
+# ============================================================
+# SpringDoc / Swagger UI
+# ============================================================
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+# ============================================================
+# Logging
+# ============================================================
 logging:
   level:
+    root: INFO
     org.example.ortaback: DEBUG
-    org.springframework.security: DEBUG
+    org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
-    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.hibernate.orm.jdbc.bind: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+
+# ============================================================
+# Actuator
+# ============================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
