@@ -6,9 +6,9 @@ spring:
   # Datasource
   # ============================================================
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/orta_db}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/orta-db}
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
+    password: ${DB_PASSWORD:13502}
     driver-class-name: org.postgresql.Driver
     hikari:
       maximum-pool-size: 20
@@ -23,7 +23,8 @@ spring:
   # ============================================================
   jpa:
     hibernate:
-      ddl-auto: validate          # prod-safe; миграции через init.sql / Flyway
+      ddl-auto: update            # prototype phase — Hibernate creates missing tables.
+                                  # Switch back to `validate` once Flyway migrations are in place.
     show-sql: false
     open-in-view: false
     properties:
