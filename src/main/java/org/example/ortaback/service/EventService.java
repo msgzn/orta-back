@@ -7,6 +7,8 @@ import org.example.ortaback.dto.geo.EventMapMarkerDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
+import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.geo.BoundingBox;
 import org.example.ortaback.persistence.models.User;
@@ -64,4 +66,20 @@ public interface EventService {
     void leaveEvent(Long eventId, User user);
 
     List<ParticipantResponseDto> listParticipants(Long eventId, User viewer);
+
+    // ---------------- Лента / feed ---------------------------------------
+
+    /**
+     * Стандартная лента: ACTIVE-события опционально отфильтрованные по
+     * категории, отсортированные по {@code startTime asc}.
+     */
+    PageDto<EventFeedItemDto> findFeed(Long categoryId, int page, int size, User viewer);
+
+    /**
+     * Персонализированная лента через pgvector cosine-distance к
+     * {@code user.global_interest_embedding}. Если у пользователя нет
+     * эмбеддинга — прозрачно фоллбэчит на {@link #findFeed(Long, int, int, User)}
+     * (sort=recent).
+     */
+    PageDto<EventFeedItemDto> findRecommended(Long categoryId, int page, int size, User viewer);
 }

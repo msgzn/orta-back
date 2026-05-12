@@ -7,6 +7,8 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
+import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.service.EventService;
@@ -19,6 +21,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -31,6 +34,32 @@ import java.util.List;
 public class EventController {
 
     private final EventService eventService;
+
+    /**
+     * Лента событий.
+     *
+     * @param categoryId опциональный фильтр по категории
+     * @param page       номер страницы (0-based)
+     * @param size       размер страницы (по умолчанию 20, максимум 100)
+     * @param sort       {@code recent} (дефолт, сортировка по {@code startTime asc})
+     *                   или {@code recommended} (pgvector cosine к интересам
+     *                   пользователя; при отсутствии эмбеддинга — фоллбэк
+     *                   на {@code recent})
+     */
+    @Operation(summary = "Лента событий с фильтром по категории и AI-сортировкой")
+    @GetMapping
+    public PageDto<EventFeedItemDto> feed(
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(defaultValue = "recent") String sort,
+            @AuthenticationPrincipal User currentUser) {
+
+        if ("recommended".equalsIgnoreCase(sort)) {
+            return eventService.findRecommended(categoryId, page, size, currentUser);
+        }
+        return eventService.findFeed(categoryId, page, size, currentUser);
+    }
 
     @Operation(summary = "Создать событие — creator становится JOINED-участником")
     @PostMapping

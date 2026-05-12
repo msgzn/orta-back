@@ -4,6 +4,8 @@ import org.example.ortaback.dto.geo.ClusterDto;
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.geo.EventMapMarkerDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureDto;
+import org.example.ortaback.dto.response.CreatorMiniDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.geo.GeoJsonConverter;
 import org.example.ortaback.persistence.models.Category;
 import org.example.ortaback.persistence.models.Event;
@@ -85,6 +87,39 @@ public class EventMapMapper {
             properties.put("categoryIcon", event.getCategory().getIconUrl());
         }
         return GeoJsonConverter.toFeature(event.getId(), visibleLocation, properties);
+    }
+
+    public EventFeedItemDto toFeedItem(Event event, Point visibleLocation, long participantsCount) {
+        Category category = event.getCategory();
+        User creator = event.getCreator();
+
+        CreatorMiniDto creatorMini = new CreatorMiniDto(
+                creator.getId(),
+                creator.getFirstName(),
+                creator.getLastName(),
+                creator.getAvatarUrl(),
+                creator.getTrustScore()
+        );
+
+        return new EventFeedItemDto(
+                event.getId(),
+                event.getTitle(),
+                event.getPlaceName(),
+                event.getAddress(),
+                visibleLocation != null ? visibleLocation.getY() : null,
+                visibleLocation != null ? visibleLocation.getX() : null,
+                event.getLocationPrecision(),
+                event.getStartTime(),
+                event.getTimeDuration(),
+                event.getMaxParticipants(),
+                participantsCount,
+                event.getPricePerPerson(),
+                event.getStatus(),
+                category != null ? category.getId()      : null,
+                category != null ? category.getName()    : null,
+                category != null ? category.getIconUrl() : null,
+                creatorMini
+        );
     }
 
     public ClusterDto toCluster(EventClusterProjection projection) {

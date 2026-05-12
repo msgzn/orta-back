@@ -52,6 +52,51 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     Page<Event> findByStatus(EventStatus status, Pageable pageable);
 
+    /**
+     * Лента событий: только {@code ACTIVE}, опциональный фильтр по категории.
+     * Передавайте {@code null} в {@code categoryId}, чтобы вернуть все
+     * категории. Сортировка задаётся через {@code Pageable}.
+     */
+    @Query("""
+            SELECT e
+              FROM Event e
+             WHERE e.status = org.example.ortaback.persistence.models.enums.EventStatus.ACTIVE
+               AND (:categoryId IS NULL OR e.category.id = :categoryId)
+            """)
+    Page<Event> findFeed(@Param("categoryId") Long categoryId, Pageable pageable);
+
+    /**
+     * AI-рекомендации: ближайшие по cosine-distance к вектору интересов
+     * пользователя, среди ACTIVE и без тех, в которые юзер уже вступил.
+     *
+     * <p>Параметр {@code embedding} принимается строкой в формате pgvector
+     * ({@code "[0.1,0.2,…]"}) и кастуется на SQL-стороне.
+     *
+     * @param embedding     pgvector-текст
+     * @param viewerId      исключаем события, в которых viewer уже JOINED
+     * @param categoryId    {@code null} — без фильтра по категории
+     * @param limit         сколько вернуть
+     */
+    @Query(value = """
+            SELECT e.*
+              FROM event e
+             WHERE e.status = 'ACTIVE'
+               AND e.event_embedding IS NOT NULL
+               AND (:categoryId IS NULL OR e.category_id = :categoryId)
+               AND NOT EXISTS (
+                     SELECT 1 FROM event_participant ep
+                      WHERE ep.event_id = e.id
+                        AND ep.user_id  = :viewerId
+                        AND ep.status   = 'JOINED'
+                   )
+             ORDER BY e.event_embedding <=> CAST(:embedding AS vector)
+             LIMIT :limit
+            """, nativeQuery = true)
+    List<Event> findRecommendedForUser(@Param("embedding") String embedding,
+                                       @Param("viewerId") Long viewerId,
+                                       @Param("categoryId") Long categoryId,
+                                       @Param("limit") int limit);
+
     // -------------------------------------------------------------------------
     // Геопространственные запросы (PostGIS)
     //
