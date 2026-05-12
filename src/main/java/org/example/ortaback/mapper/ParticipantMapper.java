@@ -1,21 +1,30 @@
 package org.example.ortaback.mapper;
 
 import org.example.ortaback.dto.response.ParticipantResponseDto;
-import org.example.ortaback.persistence.models.Participant;
-import org.mapstruct.Mapper;
-import org.mapstruct.Mapping;
-import org.mapstruct.ReportingPolicy;
+import org.example.ortaback.persistence.models.EventParticipant;
+import org.example.ortaback.persistence.models.User;
+import org.springframework.stereotype.Component;
 
-@Mapper(componentModel = "spring", unmappedTargetPolicy = ReportingPolicy.IGNORE)
-public interface ParticipantMapper {
+/**
+ * {@code EventParticipant + User} → {@link ParticipantResponseDto}.
+ *
+ * <p>Триггерит lazy-load на {@code participant.getUser()} — для списка
+ * участников одного события это допустимо (1 SQL на пользователя).
+ * При необходимости можно поджарить через JOIN FETCH.
+ */
+@Component
+public class ParticipantMapper {
 
-    @Mapping(source = "id", target = "id")
-    @Mapping(source = "user.id", target = "userId")
-    @Mapping(source = "user.username", target = "userName")
-    @Mapping(source = "user.fullName", target = "userFullName")
-    @Mapping(source = "isHoster", target = "isHoster")
-    @Mapping(source = "rsvpStatus", target = "rsvpStatus")
-    @Mapping(source = "attendAt", target = "attendAt")
-    @Mapping(source = "joinedAt", target = "joinedAt")
-    ParticipantResponseDto toDto(Participant participant);
+    public ParticipantResponseDto toDto(EventParticipant participant) {
+        User user = participant.getUser();
+        return new ParticipantResponseDto(
+                user.getId(),
+                user.getFirstName(),
+                user.getLastName(),
+                user.getAvatarUrl(),
+                participant.getStatus(),
+                participant.getJoinedAt(),
+                participant.getAttendAt()
+        );
+    }
 }

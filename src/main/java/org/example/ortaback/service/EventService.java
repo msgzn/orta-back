@@ -1,33 +1,67 @@
 package org.example.ortaback.service;
 
+import org.example.ortaback.dto.geo.BoundingBoxResultDto;
+import org.example.ortaback.dto.geo.ClusterDto;
+import org.example.ortaback.dto.geo.EventDetailDto;
+import org.example.ortaback.dto.geo.EventMapMarkerDto;
+import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
-import org.example.ortaback.dto.response.EventResponseDto;
+import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
-import org.example.ortaback.persistence.models.enums.EventType;
+import org.example.ortaback.geo.BoundingBox;
+import org.example.ortaback.persistence.models.User;
 
 import java.util.List;
 
+/**
+ * Use-case'ы событий: и геопространственные (карта), и доменный CRUD,
+ * и участие пользователей.
+ */
 public interface EventService {
-    
-    EventResponseDto createEvent(EventCreateRequestDto requestDto, String username);
-    
-    EventResponseDto getEventById(Long eventId, String username);
-    
-    List<EventResponseDto> getAllActiveEvents(String username);
-    
-    List<EventResponseDto> getActiveEventsByType(EventType type, String username);
-    
-    EventResponseDto joinEvent(Long eventId, String username);
-    
-    EventResponseDto leaveEvent(Long eventId, String username);
 
-    EventResponseDto cancelEvent(Long eventId, String username);
+    // ---------------- Геопространственные ---------------------------------
 
-    EventResponseDto completeEvent(Long eventId, String username);
+    List<EventMapMarkerDto> findNearbyEvents(double lat,
+                                             double lng,
+                                             double radiusMeters,
+                                             User viewer);
 
-    EventResponseDto kickParticipant(Long eventId, Long participantId, String username);
+    BoundingBoxResultDto findInBoundingBox(BoundingBox bbox, User viewer);
 
-    List<ParticipantResponseDto> getEventParticipants(Long eventId);
+    List<ClusterDto> findClustersInBoundingBox(BoundingBox bbox, Integer zoom);
 
-    List<EventResponseDto> getUserEvents(String username);
+    GeoJsonFeatureCollectionDto findGeoJsonInBoundingBox(BoundingBox bbox, User viewer);
+
+    // ---------------- CRUD ------------------------------------------------
+
+    /**
+     * Создаёт событие; creator автоматически становится участником
+     * со статусом JOINED.
+     */
+    EventDetailDto createEvent(EventCreateRequestDto request, User creator);
+
+    /**
+     * Полная карточка события с учётом приватной маскировки координат для
+     * viewer'а.
+     */
+    EventDetailDto getEvent(Long id, User viewer);
+
+    /**
+     * PATCH-обновление: только переданные ({@code != null}) поля изменяются.
+     * Только creator или ADMIN.
+     */
+    EventDetailDto updateEvent(Long id, EventUpdateRequestDto request, User actor);
+
+    /**
+     * Soft-cancel: ставит {@code status = CANCELED}. Только creator или ADMIN.
+     */
+    void cancelEvent(Long id, User actor);
+
+    // ---------------- Участие --------------------------------------------
+
+    void joinEvent(Long eventId, User user);
+
+    void leaveEvent(Long eventId, User user);
+
+    List<ParticipantResponseDto> listParticipants(Long eventId, User viewer);
 }

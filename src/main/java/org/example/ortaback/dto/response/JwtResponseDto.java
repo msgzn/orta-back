@@ -1,31 +1,20 @@
 package org.example.ortaback.dto.response;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+/**
+ * Ответ Auth-эндпоинтов: пара access + refresh.
+ *
+ * <p>{@code expiresInMs} — TTL access-токена (миллисекунды); фронт может
+ * запланировать обновление до истечения.
+ */
+public record JwtResponseDto(
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class JwtResponseDto {
+        String accessToken,
+        String refreshToken,
+        String tokenType,
+        long expiresInMs
+) {
 
-    @JsonProperty("access_token")
-    private String accessToken;
-
-    @JsonProperty("refresh_token")
-    private String refreshToken;
-
-    @JsonProperty("token_type")
-    private String tokenType;
-
-    @JsonProperty("user_id")
-    private Long userId;
-
-    private String username;
-    private String fullName;
-    private String email;
-    private String role;
+    public static JwtResponseDto bearer(String accessToken, String refreshToken, long expiresInMs) {
+        return new JwtResponseDto(accessToken, refreshToken, "Bearer", expiresInMs);
+    }
 }

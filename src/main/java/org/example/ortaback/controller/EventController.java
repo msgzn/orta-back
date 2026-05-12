@@ -1,110 +1,88 @@
 package org.example.ortaback.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
-import org.example.ortaback.dto.response.EventResponseDto;
+import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.persistence.models.User;
-import org.example.ortaback.persistence.models.enums.EventType;
 import org.example.ortaback.service.EventService;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/events")
+@RequestMapping("/api/v1/events")
 @RequiredArgsConstructor
+@Tag(name = "Events", description = "CRUD событий и участие")
 public class EventController {
 
     private final EventService eventService;
 
+    @Operation(summary = "Создать событие — creator становится JOINED-участником")
     @PostMapping
-    public ResponseEntity<EventResponseDto> createEvent(
-            @Valid @RequestBody EventCreateRequestDto requestDto,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.createEvent(requestDto, user.getUsername());
-        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    @ResponseStatus(HttpStatus.CREATED)
+    public EventDetailDto create(@Valid @RequestBody EventCreateRequestDto request,
+                                 @AuthenticationPrincipal User currentUser) {
+        return eventService.createEvent(request, currentUser);
     }
 
+    @Operation(summary = "Карточка события (с маскировкой APPROXIMATE-координат)")
     @GetMapping("/{id}")
-    public ResponseEntity<EventResponseDto> getEventById(
-            @PathVariable Long id,
-            @AuthenticationPrincipal(errorOnInvalidType = false) User user) {
-        String username = user != null ? user.getUsername() : null;
-        EventResponseDto response = eventService.getEventById(id, username);
-        return ResponseEntity.ok(response);
+    public EventDetailDto get(@PathVariable Long id,
+                              @AuthenticationPrincipal User currentUser) {
+        return eventService.getEvent(id, currentUser);
     }
 
-    @GetMapping
-    public ResponseEntity<List<EventResponseDto>> getAllActiveEvents(
-            @RequestParam(required = false) EventType type,
-            @AuthenticationPrincipal(errorOnInvalidType = false) User user) {
-        String username = user != null ? user.getUsername() : null;
-        List<EventResponseDto> response;
-        if (type != null) {
-            response = eventService.getActiveEventsByType(type, username);
-        } else {
-            response = eventService.getAllActiveEvents(username);
-        }
-        return ResponseEntity.ok(response);
+    @Operation(summary = "Частичное обновление события (только creator или ADMIN)")
+    @PatchMapping("/{id}")
+    public EventDetailDto update(@PathVariable Long id,
+                                 @Valid @RequestBody EventUpdateRequestDto request,
+                                 @AuthenticationPrincipal User currentUser) {
+        return eventService.updateEvent(id, request, currentUser);
     }
 
+    @Operation(summary = "Отмена события (soft) — status=CANCELED. creator или ADMIN")
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void cancel(@PathVariable Long id,
+                       @AuthenticationPrincipal User currentUser) {
+        eventService.cancelEvent(id, currentUser);
+    }
+
+    @Operation(summary = "Присоединиться к событию")
     @PostMapping("/{id}/join")
-    public ResponseEntity<EventResponseDto> joinEvent(
-            @PathVariable Long id,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.joinEvent(id, user.getUsername());
-        return ResponseEntity.ok(response);
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void join(@PathVariable Long id,
+                     @AuthenticationPrincipal User currentUser) {
+        eventService.joinEvent(id, currentUser);
     }
 
-    @PostMapping("/{id}/leave")
-    public ResponseEntity<EventResponseDto> leaveEvent(
-            @PathVariable Long id,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.leaveEvent(id, user.getUsername());
-        return ResponseEntity.ok(response);
+    @Operation(summary = "Покинуть событие (creator не может — должен cancel)")
+    @DeleteMapping("/{id}/leave")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void leave(@PathVariable Long id,
+                      @AuthenticationPrincipal User currentUser) {
+        eventService.leaveEvent(id, currentUser);
     }
 
-    @PostMapping("/{id}/cancel")
-    public ResponseEntity<EventResponseDto> cancelEvent(
-            @PathVariable Long id,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.cancelEvent(id, user.getUsername());
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/{id}/complete")
-    public ResponseEntity<EventResponseDto> completeEvent(
-            @PathVariable Long id,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.completeEvent(id, user.getUsername());
-        return ResponseEntity.ok(response);
-    }
-
-    @PostMapping("/{id}/kick/{participantId}")
-    public ResponseEntity<EventResponseDto> kickParticipant(
-            @PathVariable Long id,
-            @PathVariable Long participantId,
-            @AuthenticationPrincipal User user) {
-        EventResponseDto response = eventService.kickParticipant(id, participantId, user.getUsername());
-        return ResponseEntity.ok(response);
-    }
-
+    @Operation(summary = "Список участников события")
     @GetMapping("/{id}/participants")
-    public ResponseEntity<List<ParticipantResponseDto>> getEventParticipants(
-            @PathVariable Long id) {
-        List<ParticipantResponseDto> response = eventService.getEventParticipants(id);
-        return ResponseEntity.ok(response);
-    }
-
-    @GetMapping("/my-events")
-    public ResponseEntity<List<EventResponseDto>> getUserEvents(
-            @AuthenticationPrincipal User user) {
-        List<EventResponseDto> response = eventService.getUserEvents(user.getUsername());
-        return ResponseEntity.ok(response);
+    public List<ParticipantResponseDto> participants(@PathVariable Long id,
+                                                     @AuthenticationPrincipal User currentUser) {
+        return eventService.listParticipants(id, currentUser);
     }
 }

@@ -1,139 +1,142 @@
 package org.example.ortaback.service.impl;
 
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.example.ortaback.dto.request.LoginRequestDTO;
-import org.example.ortaback.dto.request.UserCreateRequestDto;
+import org.example.ortaback.config.JwtProperties;
+import org.example.ortaback.dto.request.LoginRequestDto;
+import org.example.ortaback.dto.request.RegisterRequestDto;
 import org.example.ortaback.dto.response.JwtResponseDto;
 import org.example.ortaback.exception.InvalidCredentialsException;
 import org.example.ortaback.exception.InvalidTokenException;
 import org.example.ortaback.exception.ResourceAlreadyExistsException;
 import org.example.ortaback.exception.ResourceNotFoundException;
+import org.example.ortaback.persistence.models.University;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.UserRole;
+import org.example.ortaback.persistence.repository.UniversityRepository;
 import org.example.ortaback.persistence.repository.UserRepository;
+import org.example.ortaback.security.JwtTokenProvider;
 import org.example.ortaback.service.AuthService;
-import org.example.ortaback.utils.JwtUtil;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-@Slf4j
+import java.util.Optional;
+
 @Service
 @RequiredArgsConstructor
 public class AuthServiceImpl implements AuthService {
 
-    private final AuthenticationManager authenticationManager;
     private final UserRepository userRepository;
+    private final UniversityRepository universityRepository;
     private final PasswordEncoder passwordEncoder;
-    private final JwtUtil jwtUtil;
-    private final UserDetailsService userDetailsService;
+    private final AuthenticationManager authenticationManager;
+    private final JwtTokenProvider tokenProvider;
+    private final JwtProperties jwtProperties;
 
+    // -----------------------------------------------------------------------
+
+    @Override
     @Transactional
-    public String signUp(UserCreateRequestDto userCreateRequestDto) {
-        log.info("Attempting to register user: {}", userCreateRequestDto.getUsername());
+    public JwtResponseDto register(RegisterRequestDto request) {
+        String email = normalizeEmail(request.email());
 
-        if (userRepository.existsByUserName(userCreateRequestDto.getUsername())) {
-            throw new ResourceAlreadyExistsException("Username already taken: " + userCreateRequestDto.getUsername());
+        if (userRepository.existsByEmail(email)) {
+            throw new ResourceAlreadyExistsException("Email already registered: " + email);
+        }
+        if (request.phoneNumber() != null
+                && !request.phoneNumber().isBlank()
+                && userRepository.existsByPhoneNumber(request.phoneNumber())) {
+            throw new ResourceAlreadyExistsException(
+                    "Phone already registered: " + request.phoneNumber());
         }
 
-        if (userRepository.existsByEmail(userCreateRequestDto.getEmail())) {
-            throw new ResourceAlreadyExistsException("Email already in use: " + userCreateRequestDto.getEmail());
+        University university;
+        if (request.universityId() != null) {
+            university = universityRepository.findById(request.universityId())
+                    .orElseThrow(() -> new ResourceNotFoundException(
+                            "University not found: id=" + request.universityId()));
+        } else {
+            university = detectUniversityFromEmail(email).orElse(null);
         }
 
         User user = User.builder()
-                .userName(userCreateRequestDto.getUsername())
-                .fullName(userCreateRequestDto.getFullName())
-                .email(userCreateRequestDto.getEmail())
-                .password(passwordEncoder.encode(userCreateRequestDto.getPassword()))
-                .phone(userCreateRequestDto.getPhone())
+                .firstName(request.firstName())
+                .lastName(request.lastName())
+                .email(email)
+                .hashedPassword(passwordEncoder.encode(request.password()))
+                .phoneNumber(emptyToNull(request.phoneNumber()))
                 .role(UserRole.USER)
-                .emailVerified(false)
-                .phoneVerified(false)
+                .trustScore(0.0f)
+                .searchRadiusKm(10)
+                .university(university)
                 .build();
 
-        userRepository.save(user);
-        log.info("User registered successfully: {}", user.getUsername());
-
-        return "User registered successfully!";
+        user = userRepository.save(user);
+        return issueTokens(user);
     }
 
-    public JwtResponseDto signIn(LoginRequestDTO loginRequest) {
-        log.info("Attempting to sign in user: {}", loginRequest.getUsername());
-
+    @Override
+    @Transactional(readOnly = true)
+    public JwtResponseDto login(LoginRequestDto request) {
+        String email = normalizeEmail(request.email());
         try {
             Authentication authentication = authenticationManager.authenticate(
-                    new UsernamePasswordAuthenticationToken(
-                            loginRequest.getUsername(),
-                            loginRequest.getPassword()
-                    )
-            );
-
-            UserDetails userDetails = (UserDetails) authentication.getPrincipal();
-            String accessToken = jwtUtil.generateAccessToken(userDetails);
-            String refreshToken = jwtUtil.generateRefreshToken(userDetails);
-
-            User user = userRepository.findByUserName(userDetails.getUsername())
-                    .or(() -> userRepository.findByEmail(userDetails.getUsername()))
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-            log.info("User signed in successfully: {}", user.getUsername());
-
-            return JwtResponseDto.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken)
-                    .tokenType("Bearer")
-                    .userId(user.getId())
-                    .username(user.getUsername())
-                    .fullName(user.getFullName())
-                    .email(user.getEmail())
-                    .role(user.getRole().name())
-                    .build();
-
-        } catch (BadCredentialsException e) {
-            log.warn("Failed sign in attempt for user: {}", loginRequest.getUsername());
-            throw new InvalidCredentialsException("Invalid username or password");
+                    new UsernamePasswordAuthenticationToken(email, request.password()));
+            User user = (User) authentication.getPrincipal();
+            return issueTokens(user);
+        } catch (AuthenticationException ex) {
+            throw new InvalidCredentialsException("Invalid email or password");
         }
     }
 
-    public JwtResponseDto refreshToken(String refreshToken) {
-        log.info("Attempting to refresh token");
-
-        try {
-            String username = jwtUtil.getUsernameFromToken(refreshToken);
-            UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-
-            if (!jwtUtil.validateToken(refreshToken, userDetails)) {
-                throw new InvalidTokenException("Invalid or expired refresh token");
-            }
-
-            String newAccessToken = jwtUtil.generateAccessToken(userDetails);
-            String newRefreshToken = jwtUtil.generateRefreshToken(userDetails);
-
-            User user = userRepository.findByUserName(username)
-                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-            log.info("Token refreshed successfully for user: {}", username);
-
-            return JwtResponseDto.builder()
-                    .accessToken(newAccessToken)
-                    .refreshToken(newRefreshToken)
-                    .tokenType("Bearer")
-                    .userId(user.getId())
-                    .username(user.getUsername())
-                    .email(user.getEmail())
-                    .role(user.getRole().name())
-                    .build();
-
-        } catch (Exception e) {
-            log.error("Token refresh failed: {}", e.getMessage());
+    @Override
+    @Transactional(readOnly = true)
+    public JwtResponseDto refresh(String refreshToken) {
+        if (!tokenProvider.isValid(refreshToken)) {
             throw new InvalidTokenException("Invalid or expired refresh token");
         }
+        if (!tokenProvider.isRefreshToken(refreshToken)) {
+            throw new InvalidTokenException("Provided token is not a refresh token");
+        }
+
+        String email = tokenProvider.getUsername(refreshToken);
+        User user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new InvalidTokenException(
+                        "User behind refresh token no longer exists"));
+
+        return issueTokens(user);
+    }
+
+    // -----------------------------------------------------------------------
+
+    private JwtResponseDto issueTokens(User user) {
+        String access  = tokenProvider.generateAccessToken(user);
+        String refresh = tokenProvider.generateRefreshToken(user);
+        return JwtResponseDto.bearer(access, refresh, jwtProperties.accessTokenExpiration());
+    }
+
+    /**
+     * Пытается найти ВУЗ по совпадению {@code domain_pattern} с суффиксом
+     * email'а ({@code @kaznu.kz}).
+     */
+    private Optional<University> detectUniversityFromEmail(String email) {
+        int at = email.indexOf('@');
+        if (at < 0) {
+            return Optional.empty();
+        }
+        String suffix = email.substring(at); // включает '@'
+        return universityRepository.findByDomainPattern(suffix);
+    }
+
+    private static String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase();
+    }
+
+    private static String emptyToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s;
     }
 }

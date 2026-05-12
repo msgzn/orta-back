@@ -1,47 +1,36 @@
 package org.example.ortaback.dto.request;
 
-import jakarta.validation.constraints.*;
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
-import org.example.ortaback.persistence.models.enums.EventType;
+import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
+import org.example.ortaback.geo.annotation.ValidLatitude;
+import org.example.ortaback.geo.annotation.ValidLongitude;
+import org.example.ortaback.persistence.models.enums.LocationPrecision;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-@Data
-@Builder
-@NoArgsConstructor
-@AllArgsConstructor
-public class EventCreateRequestDto {
+public record EventCreateRequestDto(
 
-    @NotBlank(message = "Title is required")
-    @Size(max = 200, message = "Title must not exceed 200 characters")
-    private String title;
+        @NotBlank @Size(max = 200) String title,
+        @Size(max = 5000) String description,
+        @Size(max = 200) String placeName,
+        @Size(max = 500) String address,
 
-    @NotNull(message = "Event type is required")
-    private EventType type;
+        @NotNull @ValidLatitude  Double lat,
+        @NotNull @ValidLongitude Double lng,
+        LocationPrecision locationPrecision,
 
-    @Size(max = 2000, message = "Description must not exceed 2000 characters")
-    private String description;
+        @NotNull Long categoryId,
 
-    @Size(max = 200, message = "Place name must not exceed 200 characters")
-    private String placeName;
+        @NotNull @Future LocalDateTime startTime,
+        @Positive Integer timeDuration,
 
-    @Size(max = 500, message = "Address must not exceed 500 characters")
-    private String address;
+        @PositiveOrZero Integer minParticipants,
+        @PositiveOrZero Integer maxParticipants,
 
-    @NotNull(message = "Date and time is required")
-    @Future(message = "Event date must be in the future")
-    private LocalDateTime dateTime;
-
-    @Positive(message = "Duration must be positive")
-    private Integer timeDuration; // в минутах
-
-    @Positive(message = "Max participants must be positive")
-    private Integer maxParticipants;
-
-    @DecimalMin(value = "0.0", inclusive = true, message = "Price cannot be negative")
-    private BigDecimal pricePerPerson;
-}
+        @PositiveOrZero BigDecimal pricePerPerson
+) {}

@@ -1,5 +1,7 @@
 package org.example.ortaback.exception;
 
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
 import org.example.ortaback.dto.response.ErrorResponseDto;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -61,6 +63,28 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(error);
     }
 
+    @ExceptionHandler(EventStateException.class)
+    public ResponseEntity<ErrorResponseDto> handleEventState(EventStateException ex) {
+        ErrorResponseDto error = ErrorResponseDto.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(error);
+    }
+
+    @ExceptionHandler(InvalidCoordinatesException.class)
+    public ResponseEntity<ErrorResponseDto> handleInvalidCoordinates(InvalidCoordinatesException ex) {
+        ErrorResponseDto error = ErrorResponseDto.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
+    }
+
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ErrorResponseDto> handleAuthenticationException(AuthenticationException ex) {
         ErrorResponseDto error = ErrorResponseDto.builder()
@@ -81,6 +105,25 @@ public class GlobalExceptionHandler {
                 .message("Access denied: " + ex.getMessage())
                 .build();
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(error);
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ErrorResponseDto> handleConstraintViolation(ConstraintViolationException ex) {
+        Map<String, String> violations = new HashMap<>();
+        for (ConstraintViolation<?> v : ex.getConstraintViolations()) {
+            // path может быть "method.paramName" — берём только последний сегмент.
+            String path = v.getPropertyPath().toString();
+            int dot = path.lastIndexOf('.');
+            violations.put(dot >= 0 ? path.substring(dot + 1) : path, v.getMessage());
+        }
+        ErrorResponseDto error = ErrorResponseDto.builder()
+                .timestamp(LocalDateTime.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                .message("Validation failed")
+                .validationErrors(violations)
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
