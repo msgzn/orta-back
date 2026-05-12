@@ -10,6 +10,8 @@ import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
+import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.exception.EventStateException;
 import org.example.ortaback.exception.InvalidCoordinatesException;
@@ -36,6 +38,13 @@ import org.example.ortaback.persistence.repository.EventParticipantRepository;
 import org.example.ortaback.persistence.repository.EventRepository;
 import org.example.ortaback.service.EventService;
 import org.locationtech.jts.geom.Point;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -53,7 +62,10 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class EventServiceImpl implements EventService {
 
+    private static final Logger log = LoggerFactory.getLogger(EventServiceImpl.class);
+
     private static final int GEOJSON_MAX_FEATURES = 5000;
+    private static final int FEED_MAX_PAGE_SIZE   = 100;
 
     private final EventRepository eventRepository;
     private final EventParticipantRepository participantRepository;
@@ -335,6 +347,66 @@ public class EventServiceImpl implements EventService {
     }
 
     // =======================================================================
+    //  Лента / Feed
+    // =======================================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> findFeed(Long categoryId, int page, int size, User viewer) {
+        Pageable pageable = PageRequest.of(
+                Math.max(0, page),
+                clampSize(size),
+                Sort.by(Sort.Direction.ASC, "startTime", "id"));
+
+        Page<Event> events = eventRepository.findFeed(categoryId, pageable);
+        Page<EventFeedItemDto> mapped = mapPageToFeed(events, viewer);
+        return PageDto.of(mapped);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> findRecommended(Long categoryId, int page, int size, User viewer) {
+        if (viewer == null || viewer.getGlobalInterestEmbedding() == null) {
+            // У юзера нет AI-эмбеддинга → прозрачный фоллбэк на «свежие».
+            log.debug("Recommended fallback to feed: viewer={} has no embedding", viewer != null ? viewer.getId() : null);
+            return findFeed(categoryId, page, size, viewer);
+        }
+
+        int effectiveSize = clampSize(size);
+        int effectivePage = Math.max(0, page);
+        int hardLimit = (effectivePage + 1) * effectiveSize;
+
+        String embedding = formatVector(viewer.getGlobalInterestEmbedding());
+        List<Event> top = eventRepository.findRecommendedForUser(
+                embedding, viewer.getId(), categoryId, hardLimit);
+
+        int from = Math.min(effectivePage * effectiveSize, top.size());
+        int to   = Math.min(from + effectiveSize, top.size());
+        List<Event> slice = top.subList(from, to);
+
+        Map<Long, Long> counts = participantCountsForEvents(slice);
+        Set<Long> joinedEventIds = joinedEventIdsFor(viewer);
+
+        List<EventFeedItemDto> items = slice.stream()
+                .map(e -> mapper.toFeedItem(
+                        e,
+                        visibleLocationFor(e, viewer, joinedEventIds),
+                        counts.getOrDefault(e.getId(), 0L)))
+                .toList();
+
+        // Точный totalElements здесь стоил бы отдельного COUNT'а с тем же
+        // pgvector-ORDER, что бессмысленно (top-K — не пагинируемая лента
+        // в строгом смысле). Возвращаем «известную» длину top'а; hasNext
+        // = «мы упёрлись в hardLimit», т.е. возможно есть ещё.
+        boolean hasNext = top.size() >= hardLimit;
+        Page<EventFeedItemDto> page0 = new PageImpl<>(
+                items,
+                PageRequest.of(effectivePage, effectiveSize),
+                hasNext ? (long) hardLimit + 1 : top.size());
+        return PageDto.of(page0);
+    }
+
+    // =======================================================================
     //  Helpers
     // =======================================================================
 
@@ -413,5 +485,41 @@ public class EventServiceImpl implements EventService {
         GeoProperties.Clustering c = geoProperties.clustering();
         int desired = (int) Math.max(1L, total / 50L);
         return Math.max(c.kmeansMinClusters(), Math.min(c.kmeansMaxClusters(), desired));
+    }
+
+    /**
+     * Маппит {@code Page<Event>} → {@code Page<EventFeedItemDto>} с
+     * batched-counts и приватной маскировкой за один проход.
+     */
+    private Page<EventFeedItemDto> mapPageToFeed(Page<Event> events, User viewer) {
+        List<Event> content = events.getContent();
+        if (content.isEmpty()) {
+            return events.map(e -> null);  // пустую страницу маппим в пустую
+        }
+        Map<Long, Long> counts = participantCountsForEvents(content);
+        Set<Long> joinedEventIds = joinedEventIdsFor(viewer);
+
+        return events.map(e -> mapper.toFeedItem(
+                e,
+                visibleLocationFor(e, viewer, joinedEventIds),
+                counts.getOrDefault(e.getId(), 0L)));
+    }
+
+    private static int clampSize(int requested) {
+        if (requested <= 0) return 20;
+        return Math.min(requested, FEED_MAX_PAGE_SIZE);
+    }
+
+    /**
+     * float[] → pgvector text «[1.0,2.0,…]» — для биндинга в native-query
+     * с явным CAST(:embedding AS vector).
+     */
+    private static String formatVector(float[] vec) {
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < vec.length; i++) {
+            if (i > 0) sb.append(',');
+            sb.append(vec[i]);
+        }
+        return sb.append(']').toString();
     }
 }

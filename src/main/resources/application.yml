@@ -65,6 +65,14 @@ spring:
       write-dates-as-timestamps: false
     time-zone: UTC
 
+  # ============================================================
+  # Multipart — лимиты на загрузку файлов
+  # ============================================================
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
 server:
   port: ${SERVER_PORT:8080}
   forward-headers-strategy: framework
@@ -113,6 +121,30 @@ application:
   pagination:
     default-page-size: 20
     max-page-size: 100
+
+  # ============================================================
+  # Хранилище файлов (S3 / S3-совместимое)
+  # ============================================================
+  # Для боевого окружения подставить через переменные среды.
+  # endpoint:
+  #   AWS native:                https://s3.<region>.amazonaws.com  (path-style: false)
+  #   Yandex Object Storage:     https://storage.yandexcloud.net    (path-style: true)
+  #   DigitalOcean Spaces:       https://<region>.digitaloceanspaces.com
+  #   MinIO local:               http://localhost:9000              (path-style: true)
+  storage:
+    s3:
+      endpoint:        ${S3_ENDPOINT:http://localhost:9000}
+      region:          ${S3_REGION:us-east-1}
+      bucket:          ${S3_BUCKET:orta-uploads}
+      access-key:      ${S3_ACCESS_KEY:}
+      secret-key:      ${S3_SECRET_KEY:}
+      public-base-url: ${S3_PUBLIC_BASE_URL:http://localhost:9000/orta-uploads}
+      path-style-access: ${S3_PATH_STYLE:true}
+      max-upload-bytes:  5242880   # 5 MB
+      allowed-content-types:
+        - image/jpeg
+        - image/png
+        - image/webp
 
 # ============================================================
 # SpringDoc / Swagger UI
