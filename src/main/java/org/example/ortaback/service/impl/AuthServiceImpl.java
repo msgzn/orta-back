@@ -53,6 +53,12 @@ public class AuthServiceImpl implements AuthService {
             throw new ResourceAlreadyExistsException(
                     "Phone already registered: " + request.phoneNumber());
         }
+        if (request.nickname() != null
+                && !request.nickname().isBlank()
+                && userRepository.existsByNickname(request.nickname())) {
+            throw new ResourceAlreadyExistsException(
+                    "Nickname already taken: " + request.nickname());
+        }
 
         University university;
         if (request.universityId() != null) {
@@ -66,6 +72,7 @@ public class AuthServiceImpl implements AuthService {
         User user = User.builder()
                 .firstName(request.firstName())
                 .lastName(request.lastName())
+                .nickname(emptyToNull(request.nickname()))
                 .email(email)
                 .hashedPassword(passwordEncoder.encode(request.password()))
                 .phoneNumber(emptyToNull(request.phoneNumber()))

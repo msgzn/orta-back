@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.request.UserProfileUpdateRequestDto;
 import org.example.ortaback.dto.response.CategoryDto;
 import org.example.ortaback.dto.response.UserProfileDto;
+import org.example.ortaback.exception.ResourceAlreadyExistsException;
 import org.example.ortaback.exception.ResourceNotFoundException;
 import org.example.ortaback.geo.CoordinateValidator;
 import org.example.ortaback.mapper.CategoryMapper;
@@ -63,10 +64,27 @@ public class UserServiceImpl implements UserService {
 
         if (request.firstName()      != null) user.setFirstName(request.firstName());
         if (request.lastName()       != null) user.setLastName(request.lastName());
+
+        if (request.nickname() != null) {
+            String newNick = request.nickname().isBlank() ? null : request.nickname();
+            if (newNick != null
+                    && !newNick.equals(user.getNickname())
+                    && userRepository.existsByNickname(newNick)) {
+                throw new ResourceAlreadyExistsException("Nickname already taken: " + newNick);
+            }
+            user.setNickname(newNick);
+        }
+
         if (request.phoneNumber()    != null) user.setPhoneNumber(request.phoneNumber().isBlank()
                 ? null
                 : request.phoneNumber());
         if (request.searchRadiusKm() != null) user.setSearchRadiusKm(request.searchRadiusKm());
+        if (request.language()       != null) user.setLanguage(request.language());
+
+        if (request.notifyEventStart()      != null) user.setNotifyEventStart(request.notifyEventStart());
+        if (request.notifyCapacityReached() != null) user.setNotifyCapacityReached(request.notifyCapacityReached());
+        if (request.notifyEventPublished()  != null) user.setNotifyEventPublished(request.notifyEventPublished());
+        if (request.notifyReviewReceived()  != null) user.setNotifyReviewReceived(request.notifyReviewReceived());
 
         // dirty-checking — изменения улетят на commit.
 
@@ -135,6 +153,20 @@ public class UserServiceImpl implements UserService {
         }
         user.setAvatarUrl(null);
         storageService.deleteByPublicUrl(url);
+    }
+
+    @Override
+    @Transactional
+    public void deleteAccount(Long userId) {
+        User user = loadUser(userId);
+
+        // Сначала вычистим аватар из S3 (best-effort), чтобы не оставлять
+        // публичный файл с лицом удалённого пользователя в bucket.
+        if (user.getAvatarUrl() != null) {
+            storageService.deleteByPublicUrl(user.getAvatarUrl());
+        }
+        // @SQLDelete переведёт это в UPDATE users SET deleted_at=NOW().
+        userRepository.delete(user);
     }
 
     // -----------------------------------------------------------------------

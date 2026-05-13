@@ -10,7 +10,7 @@ import java.util.List;
  * Полный профиль пользователя — отдаётся на {@code GET /api/v1/users/me}.
  *
  * <p>{@code interests} — список выбранных пользователем категорий
- * (как плоские DTO; иерархию фронт восстановит из {@code parentId}).
+ * (плоские DTO; иерархию фронт восстановит из {@code parentId}).
  * Email возвращается, чтобы фронт мог отобразить его в шапке профиля,
  * но менять его через PATCH нельзя — это идентификатор для логина.
  */
@@ -19,13 +19,16 @@ public record UserProfileDto(
         Long id,
         String firstName,
         String lastName,
+        String nickname,
         String email,
         String phoneNumber,
         String avatarUrl,
         UserRole role,
         Float trustScore,
         Integer searchRadiusKm,
+        String language,
         UniversityMiniDto university,
         LocalDateTime createdAt,
-        List<CategoryDto> interests
+        List<CategoryDto> interests,
+        NotificationPreferencesDto notifications
 ) {}

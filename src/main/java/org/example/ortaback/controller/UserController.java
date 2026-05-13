@@ -99,6 +99,13 @@ public class UserController {
         userService.deleteAvatar(currentUser.getId());
     }
 
+    @Operation(summary = "Удалить аккаунт (soft-delete: deleted_at = NOW)")
+    @DeleteMapping("/me")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteMyAccount(@AuthenticationPrincipal User currentUser) {
+        userService.deleteAccount(currentUser.getId());
+    }
+
     // -----------------------------------------------------------------------
     // Геопозиция
     // -----------------------------------------------------------------------

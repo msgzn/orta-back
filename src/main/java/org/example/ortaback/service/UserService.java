@@ -46,4 +46,11 @@ public interface UserService {
      * {@code User.avatarUrl}.
      */
     void deleteAvatar(Long userId);
+
+    /**
+     * Soft-delete пользователя — {@code @SQLDelete} на сущности проставит
+     * {@code deleted_at}. После этого пользователь невидим для Spring
+     * Security и любых SELECT-запросов; FK-цели остаются для целостности.
+     */
+    void deleteAccount(Long userId);
 }
