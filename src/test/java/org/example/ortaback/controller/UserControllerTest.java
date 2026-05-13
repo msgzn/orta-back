@@ -39,6 +39,8 @@ class UserControllerTest extends MockMvcTestSupport {
     private final UserService userService = mock(UserService.class);
     private final org.example.ortaback.service.EventService eventService =
             mock(org.example.ortaback.service.EventService.class);
+    private final org.example.ortaback.service.ReviewService reviewService =
+            mock(org.example.ortaback.service.ReviewService.class);
     private MockMvc mvc;
 
     private final User currentUser = User.builder()
@@ -50,7 +52,7 @@ class UserControllerTest extends MockMvcTestSupport {
 
     @BeforeEach
     void setUp() {
-        mvc = buildMockMvc(new UserController(userService, eventService));
+        mvc = buildMockMvc(new UserController(userService, eventService, reviewService));
         authenticate(currentUser);
     }
 

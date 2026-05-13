@@ -11,10 +11,13 @@ import org.example.ortaback.dto.response.AvatarUploadResponseDto;
 import org.example.ortaback.dto.response.CategoryDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
+import org.example.ortaback.dto.response.PublicProfileDto;
+import org.example.ortaback.dto.response.ReputationDto;
 import org.example.ortaback.dto.response.UserProfileDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
 import org.example.ortaback.service.EventService;
+import org.example.ortaback.service.ReviewService;
 import org.example.ortaback.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -41,6 +44,7 @@ public class UserController {
 
     private final UserService userService;
     private final EventService eventService;
+    private final ReviewService reviewService;
 
     // -----------------------------------------------------------------------
     // Профиль
@@ -154,5 +158,21 @@ public class UserController {
     public void updateLocation(@Valid @RequestBody LocationUpdateRequestDto request,
                                @AuthenticationPrincipal User currentUser) {
         userService.updateLastKnownLocation(currentUser.getId(), request.lat(), request.lng());
+    }
+
+    // -----------------------------------------------------------------------
+    //  Reputation + public profile (Check the owner)
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Текущая репутация: score + дельта за 30 дней + история")
+    @GetMapping("/me/reputation")
+    public ReputationDto myReputation(@AuthenticationPrincipal User currentUser) {
+        return reviewService.getMyReputation(currentUser.getId());
+    }
+
+    @Operation(summary = "Публичный профиль пользователя (Check the owner)")
+    @GetMapping("/{id}/public-profile")
+    public PublicProfileDto publicProfile(@PathVariable Long id) {
+        return reviewService.getPublicProfile(id);
     }
 }

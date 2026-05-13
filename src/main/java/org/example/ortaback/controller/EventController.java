@@ -7,12 +7,16 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.request.ParticipantReviewRequestDto;
+import org.example.ortaback.dto.request.PromoterReviewRequestDto;
+import org.example.ortaback.dto.request.VenueRatingRequestDto;
 import org.example.ortaback.dto.response.AvatarUploadResponseDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.service.EventService;
+import org.example.ortaback.service.ReviewService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -37,6 +41,7 @@ import java.util.List;
 public class EventController {
 
     private final EventService eventService;
+    private final ReviewService reviewService;
 
     /**
      * Лента событий.
@@ -177,5 +182,36 @@ public class EventController {
     public void deleteCover(@PathVariable Long id,
                             @AuthenticationPrincipal User currentUser) {
         eventService.deleteCover(id, currentUser);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Reviews — после завершения события (status=DONE)
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Промоутер оценивает одного участника")
+    @PostMapping("/{id}/reviews/participants")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reviewParticipant(@PathVariable Long id,
+                                  @Valid @RequestBody ParticipantReviewRequestDto request,
+                                  @AuthenticationPrincipal User currentUser) {
+        reviewService.reviewParticipant(id, request, currentUser);
+    }
+
+    @Operation(summary = "Участник оценивает промоутера")
+    @PostMapping("/{id}/reviews/promoter")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reviewPromoter(@PathVariable Long id,
+                               @Valid @RequestBody PromoterReviewRequestDto request,
+                               @AuthenticationPrincipal User currentUser) {
+        reviewService.reviewPromoter(id, request, currentUser);
+    }
+
+    @Operation(summary = "Оценка площадки события 1..5 ⭐")
+    @PostMapping("/{id}/reviews/venue")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void reviewVenue(@PathVariable Long id,
+                            @Valid @RequestBody VenueRatingRequestDto request,
+                            @AuthenticationPrincipal User currentUser) {
+        reviewService.reviewVenue(id, request, currentUser);
     }
 }

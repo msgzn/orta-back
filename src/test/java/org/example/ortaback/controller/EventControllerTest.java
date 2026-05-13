@@ -42,6 +42,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class EventControllerTest extends MockMvcTestSupport {
 
     private final EventService eventService = mock(EventService.class);
+    private final org.example.ortaback.service.ReviewService reviewService =
+            mock(org.example.ortaback.service.ReviewService.class);
     private MockMvc mvc;
 
     private final User currentUser = User.builder()
@@ -52,7 +54,7 @@ class EventControllerTest extends MockMvcTestSupport {
 
     @BeforeEach
     void setUp() {
-        mvc = buildMockMvc(new EventController(eventService));
+        mvc = buildMockMvc(new EventController(eventService, reviewService));
         authenticate(currentUser);
     }
 
