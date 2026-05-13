@@ -20,6 +20,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
 
     boolean existsByPhoneNumber(String phoneNumber);
 
+    boolean existsByNickname(String nickname);
+
     /**
      * Точечное обновление геопозиции — пишем нативным {@code UPDATE},
      * чтобы не подтягивать всю сущность ради двух полей.

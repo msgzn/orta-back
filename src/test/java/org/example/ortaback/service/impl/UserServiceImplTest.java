@@ -93,7 +93,7 @@ class UserServiceImplTest {
         when(userInterestRepository.findByUserId(1L)).thenReturn(java.util.List.of());
 
         UserProfileUpdateRequestDto request = new UserProfileUpdateRequestDto(
-                "New", null, null, null);
+                "New", null, null, null, null, null, null, null, null, null);
 
         userService.updateProfile(1L, request);
 
@@ -109,7 +109,8 @@ class UserServiceImplTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
         when(userInterestRepository.findByUserId(1L)).thenReturn(java.util.List.of());
 
-        userService.updateProfile(1L, new UserProfileUpdateRequestDto(null, null, "   ", null));
+        userService.updateProfile(1L, new UserProfileUpdateRequestDto(
+                null, null, null, "   ", null, null, null, null, null, null));
 
         assertThat(user.getPhoneNumber()).isNull();
     }

@@ -22,6 +22,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.example.ortaback.persistence.models.enums.UserRole;
 import org.example.ortaback.persistence.type.VectorType;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 import org.hibernate.annotations.Type;
 import org.locationtech.jts.geom.Point;
 import org.springframework.security.core.GrantedAuthority;
@@ -54,6 +56,13 @@ import java.util.Set;
 @NoArgsConstructor
 @AllArgsConstructor
 @EqualsAndHashCode(of = "id")
+// Soft delete: DELETE через JPA выполняет UPDATE deleted_at=NOW(); все SELECT
+// по сущности автоматически фильтруют soft-deleted строки. Это правильное
+// поведение для GDPR / «удалить аккаунт» — данные остаются в БД для
+// foreign-key целостности (creator событий, отзывы), но пользователь
+// перестаёт видеться API и Spring Security.
+@SQLDelete(sql = "UPDATE users SET deleted_at = NOW() WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
 public class User implements UserDetails {
 
     @Id
@@ -69,6 +78,10 @@ public class User implements UserDetails {
 
     @Column(name = "last_name", nullable = false, length = 100)
     private String lastName;
+
+    /** Опциональный публичный никнейм (например, {@code @rasul_22}); уникален среди не удалённых. */
+    @Column(unique = true, length = 50)
+    private String nickname;
 
     @Column(nullable = false, unique = true, length = 200)
     private String email;
@@ -126,6 +139,41 @@ public class User implements UserDetails {
     @Builder.Default
     private Integer searchRadiusKm = 10;
 
+    /** ISO-639-1 язык UI: «ru», «en», «kk». Используется для локализованных пушей. */
+    @Column(nullable = false, length = 5, columnDefinition = "varchar(5) default 'ru'")
+    @Builder.Default
+    private String language = "ru";
+
+    // --- Notification preferences ------------------------------------------
+    //
+    // Хранятся плоскими булевыми полями, а не отдельной NotificationPreferences
+    // сущностью. Аргумент: их мало, они меняются всегда вместе с профилем,
+    // отдельная таблица — лишний JOIN ради ~4 битов.
+
+    @Column(name = "notify_event_start", nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean notifyEventStart = true;
+
+    @Column(name = "notify_capacity_reached", nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean notifyCapacityReached = true;
+
+    @Column(name = "notify_event_published", nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean notifyEventPublished = true;
+
+    @Column(name = "notify_review_received", nullable = false, columnDefinition = "boolean default true")
+    @Builder.Default
+    private Boolean notifyReviewReceived = true;
+
+    /**
+     * Soft-delete метка. Заполняется автоматически через {@code @SQLDelete},
+     * вручную не выставляется (см. аннотации класса).
+     */
+    @JsonIgnore
+    @Column(name = "deleted_at")
+    private LocalDateTime deletedAt;
+
     // --- Обратные связи -----------------------------------------------------
 
     @OneToMany(mappedBy = "user", fetch = FetchType.LAZY)
@@ -145,15 +193,14 @@ public class User implements UserDetails {
     @PrePersist
     void onCreate() {
         this.createdAt = LocalDateTime.now();
-        if (this.role == null) {
-            this.role = UserRole.USER;
-        }
-        if (this.trustScore == null) {
-            this.trustScore = 0.0f;
-        }
-        if (this.searchRadiusKm == null) {
-            this.searchRadiusKm = 10;
-        }
+        if (this.role == null)                   this.role = UserRole.USER;
+        if (this.trustScore == null)             this.trustScore = 0.0f;
+        if (this.searchRadiusKm == null)         this.searchRadiusKm = 10;
+        if (this.language == null)               this.language = "ru";
+        if (this.notifyEventStart == null)       this.notifyEventStart = true;
+        if (this.notifyCapacityReached == null)  this.notifyCapacityReached = true;
+        if (this.notifyEventPublished == null)   this.notifyEventPublished = true;
+        if (this.notifyReviewReceived == null)   this.notifyReviewReceived = true;
     }
 
     // --- UserDetails --------------------------------------------------------

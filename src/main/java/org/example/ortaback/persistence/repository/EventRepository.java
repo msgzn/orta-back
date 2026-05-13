@@ -52,6 +52,45 @@ public interface EventRepository extends JpaRepository<Event, Long> {
 
     Page<Event> findByStatus(EventStatus status, Pageable pageable);
 
+    /** Cтраница событий пользователя как создателя, опционально по статусу. */
+    @Query("""
+            SELECT e
+              FROM Event e
+             WHERE e.creator.id = :userId
+               AND (:status IS NULL OR e.status = :status)
+            """)
+    Page<Event> findCreatedByUser(@Param("userId") Long userId,
+                                  @Param("status") EventStatus status,
+                                  Pageable pageable);
+
+    /**
+     * События, в которые пользователь {@code JOINED}. {@code upcoming}:
+     * {@code true} — только будущие; {@code false} — только прошедшие;
+     * {@code null} — все.
+     */
+    @Query("""
+            SELECT e
+              FROM Event e
+              JOIN EventParticipant ep ON ep.event = e
+             WHERE ep.user.id = :userId
+               AND ep.status  = org.example.ortaback.persistence.models.enums.ParticipantStatus.JOINED
+               AND (:upcoming IS NULL
+                    OR (:upcoming = TRUE  AND e.startTime > CURRENT_TIMESTAMP)
+                    OR (:upcoming = FALSE AND e.startTime <= CURRENT_TIMESTAMP))
+            """)
+    Page<Event> findJoinedByUser(@Param("userId") Long userId,
+                                 @Param("upcoming") Boolean upcoming,
+                                 Pageable pageable);
+
+    /** События, которые пользователь наблюдает (Observed). */
+    @Query("""
+            SELECT e
+              FROM Event e
+              JOIN EventObservation o ON o.event = e
+             WHERE o.user.id = :userId
+            """)
+    Page<Event> findObservedByUser(@Param("userId") Long userId, Pageable pageable);
+
     /**
      * Лента событий: только {@code ACTIVE}, опциональный фильтр по категории.
      * Передавайте {@code null} в {@code categoryId}, чтобы вернуть все

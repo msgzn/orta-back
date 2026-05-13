@@ -61,7 +61,7 @@ class AuthServiceImplTest {
     }
 
     private RegisterRequestDto registerDto(String email) {
-        return new RegisterRequestDto("Alice", "Smith", email, "password123", "+77001112233", null);
+        return new RegisterRequestDto("Alice", "Smith", email, "password123", "+77001112233", null, null);
     }
 
     // =======================================================================

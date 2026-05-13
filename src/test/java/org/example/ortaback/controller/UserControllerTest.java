@@ -37,6 +37,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserControllerTest extends MockMvcTestSupport {
 
     private final UserService userService = mock(UserService.class);
+    private final org.example.ortaback.service.EventService eventService =
+            mock(org.example.ortaback.service.EventService.class);
+    private final org.example.ortaback.service.ReviewService reviewService =
+            mock(org.example.ortaback.service.ReviewService.class);
     private MockMvc mvc;
 
     private final User currentUser = User.builder()
@@ -48,7 +52,7 @@ class UserControllerTest extends MockMvcTestSupport {
 
     @BeforeEach
     void setUp() {
-        mvc = buildMockMvc(new UserController(userService));
+        mvc = buildMockMvc(new UserController(userService, eventService, reviewService));
         authenticate(currentUser);
     }
 
@@ -59,11 +63,12 @@ class UserControllerTest extends MockMvcTestSupport {
     @Test
     void getMyProfile_returnsServiceDto() throws Exception {
         UserProfileDto profile = new UserProfileDto(
-                1L, "Alice", "Smith", "alice@example.com", null, null,
-                UserRole.USER, 0.0f, 10,
+                1L, "Alice", "Smith", null, "alice@example.com", null, null,
+                UserRole.USER, 0.0f, 10, "ru",
                 new UniversityMiniDto(7L, "KazNU"),
                 LocalDateTime.of(2026, 5, 1, 12, 0),
-                List.of(new CategoryDto(10L, null, "Football", null)));
+                List.of(new CategoryDto(10L, null, "Football", null)),
+                null);
         when(userService.getProfile(1L)).thenReturn(profile);
 
         mvc.perform(get("/api/v1/users/me"))
@@ -76,11 +81,12 @@ class UserControllerTest extends MockMvcTestSupport {
     @Test
     void updateMyProfile_appliesPatch() throws Exception {
         UserProfileDto updated = new UserProfileDto(
-                1L, "Alicia", "Smith", "alice@example.com",
-                null, null, UserRole.USER, 0.0f, 25, null, null, List.of());
+                1L, "Alicia", "Smith", null, "alice@example.com",
+                null, null, UserRole.USER, 0.0f, 25, "ru", null, null, List.of(), null);
         when(userService.updateProfile(eq(1L), any())).thenReturn(updated);
 
-        UserProfileUpdateRequestDto patchBody = new UserProfileUpdateRequestDto("Alicia", null, null, 25);
+        UserProfileUpdateRequestDto patchBody = new UserProfileUpdateRequestDto(
+                "Alicia", null, null, null, 25, null, null, null, null, null);
 
         mvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -92,7 +98,8 @@ class UserControllerTest extends MockMvcTestSupport {
 
     @Test
     void updateMyProfile_radiusOverLimit_returns400() throws Exception {
-        UserProfileUpdateRequestDto bad = new UserProfileUpdateRequestDto(null, null, null, 999);
+        UserProfileUpdateRequestDto bad = new UserProfileUpdateRequestDto(
+                null, null, null, null, 999, null, null, null, null, null);
 
         mvc.perform(patch("/api/v1/users/me")
                         .contentType(MediaType.APPLICATION_JSON)

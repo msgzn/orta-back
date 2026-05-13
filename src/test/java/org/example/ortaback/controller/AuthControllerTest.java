@@ -44,7 +44,7 @@ class AuthControllerTest extends MockMvcTestSupport {
         when(authService.register(any())).thenReturn(stubTokenPair());
 
         RegisterRequestDto body = new RegisterRequestDto(
-                "Alice", "Smith", "alice@kaznu.kz", "password123", "+77001112233", null);
+                "Alice", "Smith", "alice@kaznu.kz", "password123", "+77001112233", null, null);
 
         mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -58,7 +58,7 @@ class AuthControllerTest extends MockMvcTestSupport {
     @Test
     void register_invalidEmail_returns400() throws Exception {
         RegisterRequestDto bad = new RegisterRequestDto(
-                "Alice", "Smith", "not-an-email", "password123", null, null);
+                "Alice", "Smith", "not-an-email", "password123", null, null, null);
 
         mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -70,7 +70,7 @@ class AuthControllerTest extends MockMvcTestSupport {
     @Test
     void register_shortPassword_returns400() throws Exception {
         RegisterRequestDto bad = new RegisterRequestDto(
-                "Alice", "Smith", "alice@kaznu.kz", "short", null, null);
+                "Alice", "Smith", "alice@kaznu.kz", "short", null, null, null);
 
         mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -85,7 +85,7 @@ class AuthControllerTest extends MockMvcTestSupport {
                 .thenThrow(new ResourceAlreadyExistsException("Email already registered"));
 
         RegisterRequestDto body = new RegisterRequestDto(
-                "Alice", "Smith", "alice@kaznu.kz", "password123", null, null);
+                "Alice", "Smith", "alice@kaznu.kz", "password123", null, null, null);
 
         mvc.perform(post("/api/v1/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)

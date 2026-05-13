@@ -2,6 +2,7 @@ package org.example.ortaback.mapper;
 
 import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.response.CategoryDto;
+import org.example.ortaback.dto.response.NotificationPreferencesDto;
 import org.example.ortaback.dto.response.UniversityMiniDto;
 import org.example.ortaback.dto.response.UserProfileDto;
 import org.example.ortaback.persistence.models.University;
@@ -26,19 +27,29 @@ public class UserMapper {
                 .map(categoryMapper::toDto)
                 .toList();
 
+        NotificationPreferencesDto notifications = new NotificationPreferencesDto(
+                user.getNotifyEventStart(),
+                user.getNotifyCapacityReached(),
+                user.getNotifyEventPublished(),
+                user.getNotifyReviewReceived()
+        );
+
         return new UserProfileDto(
                 user.getId(),
                 user.getFirstName(),
                 user.getLastName(),
+                user.getNickname(),
                 user.getEmail(),
                 user.getPhoneNumber(),
                 user.getAvatarUrl(),
                 user.getRole(),
                 user.getTrustScore(),
                 user.getSearchRadiusKm(),
+                user.getLanguage(),
                 universityMini,
                 user.getCreatedAt(),
-                interestDtos
+                interestDtos,
+                notifications
         );
     }
 
