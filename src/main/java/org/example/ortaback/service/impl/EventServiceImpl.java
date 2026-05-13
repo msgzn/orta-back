@@ -13,6 +13,10 @@ import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
+import org.example.ortaback.persistence.models.EventObservation;
+import org.example.ortaback.persistence.repository.EventObservationRepository;
+import org.example.ortaback.storage.StorageService;
+import org.springframework.web.multipart.MultipartFile;
 import org.example.ortaback.exception.EventStateException;
 import org.example.ortaback.exception.InvalidCoordinatesException;
 import org.example.ortaback.exception.ResourceAlreadyExistsException;
@@ -69,12 +73,14 @@ public class EventServiceImpl implements EventService {
 
     private final EventRepository eventRepository;
     private final EventParticipantRepository participantRepository;
+    private final EventObservationRepository observationRepository;
     private final CategoryRepository categoryRepository;
     private final CoordinateValidator coordinateValidator;
     private final PrivacyMasker privacyMasker;
     private final GeoProperties geoProperties;
     private final EventMapMapper mapper;
     private final ParticipantMapper participantMapper;
+    private final StorageService storageService;
 
     // =======================================================================
     //  Geo / map
@@ -315,6 +321,12 @@ public class EventServiceImpl implements EventService {
                 .user(user)
                 .status(ParticipantStatus.JOINED)
                 .build());
+        event.touchActivity();
+
+        // TODO: если participantsCount достиг minParticipants — отправить
+        //       push «There are enough members» всем observer'ам через FCM
+        //       (наблюдатели берутся через observationRepository.findObserverIdsByEventId).
+        //       Реализуем после подключения PushNotificationService.
     }
 
     @Override
@@ -404,6 +416,149 @@ public class EventServiceImpl implements EventService {
                 PageRequest.of(effectivePage, effectiveSize),
                 hasNext ? (long) hardLimit + 1 : top.size());
         return PageDto.of(page0);
+    }
+
+    // =======================================================================
+    //  Lifecycle: start / finish
+    // =======================================================================
+
+    @Override
+    @Transactional
+    public void startEvent(Long eventId, User actor) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+        requireCreatorOrAdmin(event, actor);
+
+        if (event.getStatus() != EventStatus.ACTIVE) {
+            throw new EventStateException(
+                    "Cannot start an event with status " + event.getStatus());
+        }
+        if (event.getStartedAt() != null) {
+            throw new EventStateException("Event has already been started");
+        }
+        event.setStartedAt(java.time.LocalDateTime.now());
+        event.touchActivity();
+
+        // TODO: push для всех JOINED — после подключения PushNotificationService.
+    }
+
+    @Override
+    @Transactional
+    public void finishEvent(Long eventId, User actor) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+        requireCreatorOrAdmin(event, actor);
+
+        if (event.getStatus() == EventStatus.DONE) {
+            return;  // идемпотентно
+        }
+        if (event.getStatus() == EventStatus.CANCELED) {
+            throw new EventStateException("Cannot finish a cancelled event");
+        }
+        event.setStatus(EventStatus.DONE);
+        event.touchActivity();
+
+        // TODO: push участникам с приглашением оценить (после FCM + Rating).
+    }
+
+    // =======================================================================
+    //  Observe
+    // =======================================================================
+
+    @Override
+    @Transactional
+    public void observeEvent(Long eventId, User user) {
+        if (observationRepository.existsByEventIdAndUserId(eventId, user.getId())) {
+            return;  // идемпотентно
+        }
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+
+        observationRepository.save(EventObservation.builder()
+                .event(event)
+                .user(user)
+                .build());
+    }
+
+    @Override
+    @Transactional
+    public void unobserveEvent(Long eventId, User user) {
+        observationRepository.deleteByEventIdAndUserId(eventId, user.getId());
+    }
+
+    // =======================================================================
+    //  Cover image
+    // =======================================================================
+
+    @Override
+    @Transactional
+    public String uploadCover(Long eventId, MultipartFile file, User actor) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+        requireCreatorOrAdmin(event, actor);
+
+        StorageService.UploadedFile uploaded = storageService.upload(file, "events/covers");
+        String previous = event.getCoverImageUrl();
+        event.setCoverImageUrl(uploaded.url());
+        event.touchActivity();
+
+        if (previous != null && !previous.equals(uploaded.url())) {
+            storageService.deleteByPublicUrl(previous);
+        }
+        return uploaded.url();
+    }
+
+    @Override
+    @Transactional
+    public void deleteCover(Long eventId, User actor) {
+        Event event = eventRepository.findById(eventId)
+                .orElseThrow(() -> new ResourceNotFoundException("Event not found: id=" + eventId));
+        requireCreatorOrAdmin(event, actor);
+
+        String url = event.getCoverImageUrl();
+        if (url == null) {
+            return;
+        }
+        event.setCoverImageUrl(null);
+        storageService.deleteByPublicUrl(url);
+    }
+
+    // =======================================================================
+    //  «My events» tabs
+    // =======================================================================
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> listMyCreatedEvents(User user,
+                                                         EventStatus status,
+                                                         int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page), clampSize(size),
+                Sort.by(Sort.Direction.DESC, "startTime", "id"));
+        Page<Event> events = eventRepository.findCreatedByUser(user.getId(), status, pageable);
+        return PageDto.of(mapPageToFeed(events, user));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> listMyJoinedEvents(User user,
+                                                        Boolean upcoming,
+                                                        int page, int size) {
+        Sort.Direction dir = Boolean.FALSE.equals(upcoming)
+                ? Sort.Direction.DESC    // past — свежие сверху
+                : Sort.Direction.ASC;    // upcoming / all — ближайшие сверху
+        Pageable pageable = PageRequest.of(Math.max(0, page), clampSize(size),
+                Sort.by(dir, "startTime", "id"));
+        Page<Event> events = eventRepository.findJoinedByUser(user.getId(), upcoming, pageable);
+        return PageDto.of(mapPageToFeed(events, user));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> listMyObservedEvents(User user, int page, int size) {
+        Pageable pageable = PageRequest.of(Math.max(0, page), clampSize(size),
+                Sort.by(Sort.Direction.ASC, "startTime", "id"));
+        Page<Event> events = eventRepository.findObservedByUser(user.getId(), pageable);
+        return PageDto.of(mapPageToFeed(events, user));
     }
 
     // =======================================================================

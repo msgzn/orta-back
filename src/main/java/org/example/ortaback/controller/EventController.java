@@ -7,12 +7,14 @@ import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.AvatarUploadResponseDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.service.EventService;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -113,5 +116,66 @@ public class EventController {
     public List<ParticipantResponseDto> participants(@PathVariable Long id,
                                                      @AuthenticationPrincipal User currentUser) {
         return eventService.listParticipants(id, currentUser);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Lifecycle: start / finish
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Запустить событие (creator/admin) — пуш JOINED-участникам")
+    @PostMapping("/{id}/start")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void start(@PathVariable Long id,
+                      @AuthenticationPrincipal User currentUser) {
+        eventService.startEvent(id, currentUser);
+    }
+
+    @Operation(summary = "Завершить событие (status=DONE) — открывает форму оценок")
+    @PostMapping("/{id}/finish")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void finish(@PathVariable Long id,
+                       @AuthenticationPrincipal User currentUser) {
+        eventService.finishEvent(id, currentUser);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Observe
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Наблюдать за событием (Observe)")
+    @PostMapping("/{id}/observe")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void observe(@PathVariable Long id,
+                        @AuthenticationPrincipal User currentUser) {
+        eventService.observeEvent(id, currentUser);
+    }
+
+    @Operation(summary = "Отписаться от наблюдения")
+    @DeleteMapping("/{id}/observe")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unobserve(@PathVariable Long id,
+                          @AuthenticationPrincipal User currentUser) {
+        eventService.unobserveEvent(id, currentUser);
+    }
+
+    // -----------------------------------------------------------------------
+    //  Cover image
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "Загрузить обложку события (multipart, поле `file`). Creator/admin.")
+    @PostMapping(value = "/{id}/cover", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public AvatarUploadResponseDto uploadCover(@PathVariable Long id,
+                                               @RequestParam("file") MultipartFile file,
+                                               @AuthenticationPrincipal User currentUser) {
+        String url = eventService.uploadCover(id, file, currentUser);
+        return new AvatarUploadResponseDto(url);
+    }
+
+    @Operation(summary = "Удалить обложку события (creator/admin)")
+    @DeleteMapping("/{id}/cover")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteCover(@PathVariable Long id,
+                            @AuthenticationPrincipal User currentUser) {
+        eventService.deleteCover(id, currentUser);
     }
 }

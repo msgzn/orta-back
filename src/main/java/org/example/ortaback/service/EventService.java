@@ -12,6 +12,8 @@ import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.geo.BoundingBox;
 import org.example.ortaback.persistence.models.User;
+import org.example.ortaback.persistence.models.enums.EventStatus;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 
@@ -82,4 +84,45 @@ public interface EventService {
      * (sort=recent).
      */
     PageDto<EventFeedItemDto> findRecommended(Long categoryId, int page, int size, User viewer);
+
+    // ---------------- Lifecycle: start / finish ---------------------------
+
+    /**
+     * Промоутер запускает событие: ставится {@code started_at = now}, шлётся
+     * push всем JOINED-участникам (placeholder, пока FCM не подключён).
+     * Только creator или ADMIN.
+     */
+    void startEvent(Long eventId, User actor);
+
+    /**
+     * Событие закончилось: {@code status = DONE}. Открывается окно отзывов
+     * (rating system — см. отдельную итерацию). Только creator или ADMIN.
+     */
+    void finishEvent(Long eventId, User actor);
+
+    // ---------------- Observe ---------------------------------------------
+
+    /**
+     * Подписаться на событие — попадает в «Observed» в профиле и получит
+     * push «There are enough members» при достижении {@code minParticipants}.
+     */
+    void observeEvent(Long eventId, User user);
+
+    void unobserveEvent(Long eventId, User user);
+
+    // ---------------- Cover image -----------------------------------------
+
+    /** Загружает обложку события в S3. Только creator или ADMIN. */
+    String uploadCover(Long eventId, MultipartFile file, User actor);
+
+    /** Удаляет обложку события из S3 (best-effort). */
+    void deleteCover(Long eventId, User actor);
+
+    // ---------------- «My events» tabs в профиле --------------------------
+
+    PageDto<EventFeedItemDto> listMyCreatedEvents(User user, EventStatus status, int page, int size);
+
+    PageDto<EventFeedItemDto> listMyJoinedEvents(User user, Boolean upcoming, int page, int size);
+
+    PageDto<EventFeedItemDto> listMyObservedEvents(User user, int page, int size);
 }

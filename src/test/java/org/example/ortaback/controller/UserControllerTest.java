@@ -37,6 +37,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class UserControllerTest extends MockMvcTestSupport {
 
     private final UserService userService = mock(UserService.class);
+    private final org.example.ortaback.service.EventService eventService =
+            mock(org.example.ortaback.service.EventService.class);
     private MockMvc mvc;
 
     private final User currentUser = User.builder()
@@ -48,7 +50,7 @@ class UserControllerTest extends MockMvcTestSupport {
 
     @BeforeEach
     void setUp() {
-        mvc = buildMockMvc(new UserController(userService));
+        mvc = buildMockMvc(new UserController(userService, eventService));
         authenticate(currentUser);
     }
 

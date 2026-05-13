@@ -9,8 +9,12 @@ import org.example.ortaback.dto.request.InterestRequestDto;
 import org.example.ortaback.dto.request.UserProfileUpdateRequestDto;
 import org.example.ortaback.dto.response.AvatarUploadResponseDto;
 import org.example.ortaback.dto.response.CategoryDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
+import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.UserProfileDto;
 import org.example.ortaback.persistence.models.User;
+import org.example.ortaback.persistence.models.enums.EventStatus;
+import org.example.ortaback.service.EventService;
 import org.example.ortaback.service.UserService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -36,6 +40,7 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final EventService eventService;
 
     // -----------------------------------------------------------------------
     // Профиль
@@ -104,6 +109,39 @@ public class UserController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteMyAccount(@AuthenticationPrincipal User currentUser) {
         userService.deleteAccount(currentUser.getId());
+    }
+
+    // -----------------------------------------------------------------------
+    // «My events» — три табы в профиле
+    // -----------------------------------------------------------------------
+
+    @Operation(summary = "События, созданные мной (Created: active | completed)")
+    @GetMapping("/me/events/created")
+    public PageDto<EventFeedItemDto> myCreatedEvents(
+            @RequestParam(required = false) EventStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User currentUser) {
+        return eventService.listMyCreatedEvents(currentUser, status, page, size);
+    }
+
+    @Operation(summary = "События, в которых я участвую (Joined: upcoming | past)")
+    @GetMapping("/me/events/joined")
+    public PageDto<EventFeedItemDto> myJoinedEvents(
+            @RequestParam(required = false) Boolean upcoming,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User currentUser) {
+        return eventService.listMyJoinedEvents(currentUser, upcoming, page, size);
+    }
+
+    @Operation(summary = "Наблюдаемые события (Observed)")
+    @GetMapping("/me/events/observed")
+    public PageDto<EventFeedItemDto> myObservedEvents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User currentUser) {
+        return eventService.listMyObservedEvents(currentUser, page, size);
     }
 
     // -----------------------------------------------------------------------

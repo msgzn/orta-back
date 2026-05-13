@@ -48,12 +48,14 @@ class EventServiceImplTest {
 
     @Mock EventRepository eventRepository;
     @Mock EventParticipantRepository participantRepository;
+    @Mock org.example.ortaback.persistence.repository.EventObservationRepository observationRepository;
     @Mock CategoryRepository categoryRepository;
     @Mock CoordinateValidator coordinateValidator;
     @Mock PrivacyMasker privacyMasker;
     @Mock org.example.ortaback.config.GeoProperties geoProperties;
     @Mock EventMapMapper mapper;
     @Mock ParticipantMapper participantMapper;
+    @Mock org.example.ortaback.storage.StorageService storageService;
 
     EventServiceImpl eventService;
 
@@ -65,9 +67,9 @@ class EventServiceImplTest {
     @BeforeEach
     void setUp() {
         eventService = new EventServiceImpl(
-                eventRepository, participantRepository, categoryRepository,
-                coordinateValidator, privacyMasker, geoProperties,
-                mapper, participantMapper);
+                eventRepository, participantRepository, observationRepository,
+                categoryRepository, coordinateValidator, privacyMasker,
+                geoProperties, mapper, participantMapper, storageService);
     }
 
     private Event activeEvent(int max) {
