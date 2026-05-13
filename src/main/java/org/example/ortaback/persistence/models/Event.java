@@ -130,6 +130,25 @@ public class Event {
     @Column(name = "price_per_person", precision = 10, scale = 2)
     private BigDecimal pricePerPerson;
 
+    /** URL обложки события в публичном хранилище (см. {@code StorageService}). */
+    @Column(name = "cover_image_url", length = 500)
+    private String coverImageUrl;
+
+    /**
+     * Момент фактического старта (промоутер нажал «начать»). До этого
+     * {@code null}. Используется для пуша всем JOINED-участникам.
+     */
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    /**
+     * Время последнего значимого действия — создание, апдейт, join, leave,
+     * cover update. Используется фоновой задачей «2nd day inactive» для
+     * предложения промоутеру отменить событие.
+     */
+    @Column(name = "last_activity_at", nullable = false)
+    private LocalDateTime lastActivityAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
@@ -150,12 +169,23 @@ public class Event {
 
     @PrePersist
     void onCreate() {
-        this.createdAt = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        this.createdAt = now;
+        this.lastActivityAt = now;
         if (this.status == null) {
             this.status = EventStatus.ACTIVE;
         }
         if (this.locationPrecision == null) {
             this.locationPrecision = LocationPrecision.EXACT;
         }
+    }
+
+    /**
+     * Помечает событие «активным сейчас» — вызывается сервисом на join/leave/
+     * update/cover. Сама запись в БД произойдёт при commit'е транзакции
+     * благодаря dirty-checking'у Hibernate.
+     */
+    public void touchActivity() {
+        this.lastActivityAt = LocalDateTime.now();
     }
 }
