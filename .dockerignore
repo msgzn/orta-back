@@ -1,0 +1,24 @@
+# Не тащим в build context лишнее.
+target/
+.idea/
+.vscode/
+.git/
+.gitignore
+.claude/
+.mvn/wrapper/maven-wrapper.jar
+*.iml
+*.iws
+*.ipr
+
+# Локальные секреты — точно не должны попасть в образ.
+src/main/resources/application-local.yml
+.env
+.env.*
+
+# Test artifacts
+**/surefire-reports/
+
+# Documentation, scripts not needed in build
+HELP.md
+*.md
+!README.md

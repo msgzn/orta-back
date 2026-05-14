@@ -1,26 +1,20 @@
-# PostgreSQL (PostGIS + pgvector) + Redis для локальной разработки ORTA.
+# Полная локальная среда ORTA: backend (Spring Boot) + PostgreSQL
+# (PostGIS + pgvector, собран локально) + Redis.
 #
-# Postgres-образ собирается локально из ./Dockerfile.postgres — берёт
-# официальный postgis/postgis:17-3.5 и доустанавливает pgvector из
-# исходников. Это избавляет от зависимости от community-образов на
-# Docker Hub, которые периодически отдают «pull access denied»
-# из-за анонимного rate-limit'а.
-#
-# Запуск:
-#   docker compose up -d            # первый раз — сборка ~2-3 мин
-#   docker compose down             # стоп
-#   docker compose down -v          # стоп + удалить данные (для чистого старта)
-#
-# Проверка:
-#   docker exec -it orta-pg psql -U postgres -d orta-db -c "\dx"
-#   → должны быть postgis, vector, pg_trgm
+# Запуск с нуля:
+#   docker compose up -d --build
+# Дальше:
+#   docker compose ps              — все три Healthy
+#   docker compose logs -f backend
+#   docker compose down            — стоп
+#   docker compose down -v         — стоп + очистить БД (для чистого старта init.sql)
 
 services:
   postgres:
     build:
       context: .
       dockerfile: Dockerfile.postgres
-    image: orta/postgres:17-postgis-pgvector   # кэшируется локально
+    image: orta/postgres:17-postgis-pgvector
     container_name: orta-pg
     environment:
       POSTGRES_USER: postgres
@@ -53,6 +47,45 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: orta/backend:latest
+    container_name: orta-backend
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # БД и Redis — DNS-имена сервисов из этой compose-сети, НЕ localhost.
+      DB_URL:      jdbc:postgresql://postgres:5432/orta-db
+      DB_USERNAME: postgres
+      DB_PASSWORD: postgres
+      REDIS_HOST:  redis
+      REDIS_PORT:  "6379"
+
+      SERVER_PORT: "8080"
+
+      # JWT-секрет. Для прода — перебить через .env или secret.
+      JWT_SECRET:  404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+
+      # S3 — пустые по умолчанию. Бэк стартует без них (fail-open),
+      # uploads вернут 400 пока ключи не заданы.
+      S3_ENDPOINT:        ""
+      S3_REGION:          us-east-1
+      S3_BUCKET:          orta-uploads
+      S3_ACCESS_KEY:      ""
+      S3_SECRET_KEY:      ""
+      S3_PUBLIC_BASE_URL: ""
+      S3_PATH_STYLE:      "true"
+
+      JAVA_OPTS: "-Xms256m -Xmx512m"
+    ports:
+      - "8080:8080"
     restart: unless-stopped
 
 volumes:
