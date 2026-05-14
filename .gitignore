@@ -30,6 +30,13 @@ build/
 !**/src/test/**/build/
 .env
 .env*
+
+### Local secrets / per-developer config ###
+# application-local.yml держит реальные ключи S3 и т.п. — не должен
+# попадать в git. Активируется через -Dspring-boot.run.profiles=local.
+src/main/resources/application-local.yml
+application-local.yml
+
 ### VS Code ###
 .vscode/
 .claude/

@@ -1,0 +1,33 @@
+# syntax=docker/dockerfile:1
+#
+# PostgreSQL 17 + PostGIS 3.5 + pgvector 0.7
+# ------------------------------------------------------------------
+# Берём официальный postgis-образ как базу (PostGIS уже скомпилирован),
+# и доустанавливаем pgvector прямо в нём из исходников. Все build-tools
+# выпиливаются в той же RUN-инструкции — итоговый image остаётся
+# тонким и не тащит компилятор в продакшен.
+#
+# Альтернатива — использовать community-образ `imresamu/postgis-pgvector`,
+# но он иногда отдаёт «pull access denied» из-за rate-лимита Docker Hub.
+# Своя сборка снимает эту зависимость.
+
+ARG POSTGIS_TAG=17-3.5
+FROM postgis/postgis:${POSTGIS_TAG}
+
+ARG PGVECTOR_VERSION=v0.7.4
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         build-essential \
+         postgresql-server-dev-17 \
+         ca-certificates \
+         git \
+    && cd /tmp \
+    && git clone --branch ${PGVECTOR_VERSION} --depth 1 https://github.com/pgvector/pgvector.git \
+    && cd pgvector \
+    && make OPTFLAGS="" \
+    && make install \
+    && cd / \
+    && rm -rf /tmp/pgvector \
+    && apt-get purge -y --auto-remove build-essential postgresql-server-dev-17 git \
+    && rm -rf /var/lib/apt/lists/*

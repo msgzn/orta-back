@@ -1,0 +1,60 @@
+# PostgreSQL (PostGIS + pgvector) + Redis для локальной разработки ORTA.
+#
+# Postgres-образ собирается локально из ./Dockerfile.postgres — берёт
+# официальный postgis/postgis:17-3.5 и доустанавливает pgvector из
+# исходников. Это избавляет от зависимости от community-образов на
+# Docker Hub, которые периодически отдают «pull access denied»
+# из-за анонимного rate-limit'а.
+#
+# Запуск:
+#   docker compose up -d            # первый раз — сборка ~2-3 мин
+#   docker compose down             # стоп
+#   docker compose down -v          # стоп + удалить данные (для чистого старта)
+#
+# Проверка:
+#   docker exec -it orta-pg psql -U postgres -d orta-db -c "\dx"
+#   → должны быть postgis, vector, pg_trgm
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    image: orta/postgres:17-postgis-pgvector   # кэшируется локально
+    container_name: orta-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: orta-db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # init.sql с CREATE EXTENSION выполнится один раз при первой
+      # инициализации БД (когда pgdata пустой).
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres", "-d", "orta-db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    container_name: orta-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
