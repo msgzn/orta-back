@@ -71,6 +71,7 @@ public class EventMapMapper {
                 creator.getFirstName(),
                 creator.getLastName(),
                 creator.getAvatarUrl(),
+                creator.getTrustScore(),
                 participantsCount,
                 event.getCoverImageUrl()
         );
