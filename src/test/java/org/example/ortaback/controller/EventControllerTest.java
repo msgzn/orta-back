@@ -66,7 +66,8 @@ class EventControllerTest extends MockMvcTestSupport {
                 EventStatus.ACTIVE, LocationPrecision.EXACT,
                 10L, "Football", null,
                 1L, "U", "U", null,
-                1L);
+                1L,
+                null);
     }
 
     // -----------------------------------------------------------------------
@@ -80,7 +81,8 @@ class EventControllerTest extends MockMvcTestSupport {
                 43.22, 76.85, LocationPrecision.EXACT,
                 LocalDateTime.of(2026, 6, 1, 18, 0), 90, 10, 1L, null, EventStatus.ACTIVE,
                 10L, "Football", null,
-                new CreatorMiniDto(1L, "U", "U", null, 0.0f));
+                new CreatorMiniDto(1L, "U", "U", null, 0.0f),
+                null);
         PageDto<EventFeedItemDto> page = new PageDto<>(List.of(item), 0, 20, 1, 1, false, false);
         when(eventService.findFeed(eq(10L), eq(0), eq(20), any())).thenReturn(page);
 

@@ -39,5 +39,8 @@ public record EventFeedItemDto(
         String categoryName,
         String categoryIconUrl,
 
-        CreatorMiniDto creator
+        CreatorMiniDto creator,
+
+        /** Hero / обложка для карточки в ленте. {@code null} → плейсхолдер. */
+        String coverImageUrl
 ) {}

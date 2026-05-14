@@ -162,4 +162,30 @@ class AuthControllerTest extends MockMvcTestSupport {
                         .content(objectMapper.writeValueAsString(new RefreshTokenRequestDto(""))))
                 .andExpect(status().isBadRequest());
     }
+
+    // -----------------------------------------------------------------------
+    //  logout
+    // -----------------------------------------------------------------------
+
+    @Test
+    void logout_validBody_returns204() throws Exception {
+        org.example.ortaback.dto.request.LogoutRequestDto body =
+                new org.example.ortaback.dto.request.LogoutRequestDto("the-refresh");
+
+        mvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(body)))
+                .andExpect(status().isNoContent());
+
+        org.mockito.Mockito.verify(authService).logout("the-refresh");
+    }
+
+    @Test
+    void logout_blankToken_returns400() throws Exception {
+        mvc.perform(post("/api/v1/auth/logout")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(
+                                new org.example.ortaback.dto.request.LogoutRequestDto(""))))
+                .andExpect(status().isBadRequest());
+    }
 }

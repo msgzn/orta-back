@@ -34,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +45,7 @@ class AuthServiceImplTest {
     @Mock PasswordEncoder passwordEncoder;
     @Mock AuthenticationManager authenticationManager;
     @Mock JwtTokenProvider tokenProvider;
+    @Mock org.example.ortaback.security.TokenBlacklistService blacklistService;
     JwtProperties jwtProperties = new JwtProperties("secret", 60_000L, 600_000L, "orta-back");
 
     AuthServiceImpl authService;
@@ -56,7 +58,8 @@ class AuthServiceImplTest {
                 passwordEncoder,
                 authenticationManager,
                 tokenProvider,
-                jwtProperties
+                jwtProperties,
+                blacklistService
         );
     }
 
@@ -228,5 +231,78 @@ class AuthServiceImplTest {
         assertThat(response.refreshToken()).isEqualTo("new-rt");
         verify(tokenProvider).generateAccessToken(eq(user));
         verify(tokenProvider).generateRefreshToken(eq(user));
+    }
+
+    @Test
+    void refresh_blacklistedJti_throwsInvalidToken() {
+        when(tokenProvider.isValid("rt")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("rt")).thenReturn(true);
+        when(tokenProvider.getJti("rt")).thenReturn("revoked-jti");
+        when(blacklistService.isBlacklisted("revoked-jti")).thenReturn(true);
+
+        assertThatThrownBy(() -> authService.refresh("rt"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasMessageContaining("revoked");
+    }
+
+    @Test
+    void refresh_validRotation_blacklistsOldJti() {
+        User user = User.builder().id(1L).email("u@example.com").build();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(60);
+        when(tokenProvider.isValid("rt")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("rt")).thenReturn(true);
+        when(tokenProvider.getJti("rt")).thenReturn("old-jti");
+        when(blacklistService.isBlacklisted("old-jti")).thenReturn(false);
+        when(tokenProvider.getUsername("rt")).thenReturn("u@example.com");
+        when(tokenProvider.getExpiresAt("rt")).thenReturn(exp);
+        when(userRepository.findByEmail("u@example.com")).thenReturn(Optional.of(user));
+        when(tokenProvider.generateAccessToken(user)).thenReturn("new-at");
+        when(tokenProvider.generateRefreshToken(user)).thenReturn("new-rt");
+
+        authService.refresh("rt");
+
+        verify(blacklistService).blacklist("old-jti", exp);
+    }
+
+    // =======================================================================
+    //  logout
+    // =======================================================================
+
+    @Test
+    void logout_validRefresh_blacklistsJti() {
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(60);
+        when(tokenProvider.isValid("rt")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("rt")).thenReturn(true);
+        when(tokenProvider.getJti("rt")).thenReturn("the-jti");
+        when(tokenProvider.getExpiresAt("rt")).thenReturn(exp);
+
+        authService.logout("rt");
+
+        verify(blacklistService).blacklist("the-jti", exp);
+    }
+
+    @Test
+    void logout_invalidToken_isIdempotent() {
+        when(tokenProvider.isValid("garbage")).thenReturn(false);
+
+        authService.logout("garbage");
+
+        verifyNoInteractions(blacklistService);
+    }
+
+    @Test
+    void logout_blank_isNoop() {
+        authService.logout("");
+        verifyNoInteractions(blacklistService);
+    }
+
+    @Test
+    void logout_accessTokenSentToLogout_throws() {
+        when(tokenProvider.isValid("at")).thenReturn(true);
+        when(tokenProvider.isRefreshToken("at")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.logout("at"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasMessageContaining("not a refresh token");
     }
 }
