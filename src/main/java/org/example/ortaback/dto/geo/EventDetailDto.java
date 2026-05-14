@@ -40,6 +40,13 @@ public record EventDetailDto(
         String creatorLastName,
         String creatorAvatarUrl,
 
+        /**
+         * Trust score организатора (0..100). Нужен на карточке события,
+         * чтобы фронт не делал второй запрос к {@code /users/{id}/public-profile}
+         * ради одной цифры.
+         */
+        Float creatorTrustScore,
+
         long participantsCount,
 
         /** Hero / обложка события из S3. {@code null} → фронт показывает плейсхолдер. */

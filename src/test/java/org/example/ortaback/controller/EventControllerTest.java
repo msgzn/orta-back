@@ -66,6 +66,7 @@ class EventControllerTest extends MockMvcTestSupport {
                 EventStatus.ACTIVE, LocationPrecision.EXACT,
                 10L, "Football", null,
                 1L, "U", "U", null,
+                0.0f,           // creatorTrustScore
                 1L,
                 null);
     }
