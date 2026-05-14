@@ -71,7 +71,8 @@ public class EventMapMapper {
                 creator.getFirstName(),
                 creator.getLastName(),
                 creator.getAvatarUrl(),
-                participantsCount
+                participantsCount,
+                event.getCoverImageUrl()
         );
     }
 
@@ -118,7 +119,8 @@ public class EventMapMapper {
                 category != null ? category.getId()      : null,
                 category != null ? category.getName()    : null,
                 category != null ? category.getIconUrl() : null,
-                creatorMini
+                creatorMini,
+                event.getCoverImageUrl()
         );
     }
 

@@ -40,5 +40,8 @@ public record EventDetailDto(
         String creatorLastName,
         String creatorAvatarUrl,
 
-        long participantsCount
+        long participantsCount,
+
+        /** Hero / обложка события из S3. {@code null} → фронт показывает плейсхолдер. */
+        String coverImageUrl
 ) {}

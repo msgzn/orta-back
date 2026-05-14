@@ -364,6 +364,7 @@ class EventServiceImplTest {
                 EventStatus.ACTIVE, LocationPrecision.EXACT,
                 10L, "Football", null,
                 1L, "Creator", null, null,
-                1L);
+                1L,
+                null);
     }
 }
