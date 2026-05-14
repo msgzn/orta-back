@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.request.LoginRequestDto;
+import org.example.ortaback.dto.request.LogoutRequestDto;
 import org.example.ortaback.dto.request.RefreshTokenRequestDto;
 import org.example.ortaback.dto.request.RegisterRequestDto;
 import org.example.ortaback.dto.response.JwtResponseDto;
@@ -41,5 +42,12 @@ public class AuthController {
     @PostMapping("/refresh")
     public JwtResponseDto refresh(@Valid @RequestBody RefreshTokenRequestDto request) {
         return authService.refresh(request.refreshToken());
+    }
+
+    @Operation(summary = "Logout: refresh-токен помечается отозванным (Redis-blacklist)")
+    @PostMapping("/logout")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void logout(@Valid @RequestBody LogoutRequestDto request) {
+        authService.logout(request.refreshToken());
     }
 }

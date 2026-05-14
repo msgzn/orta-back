@@ -15,6 +15,7 @@ import org.example.ortaback.persistence.models.enums.UserRole;
 import org.example.ortaback.persistence.repository.UniversityRepository;
 import org.example.ortaback.persistence.repository.UserRepository;
 import org.example.ortaback.security.JwtTokenProvider;
+import org.example.ortaback.security.TokenBlacklistService;
 import org.example.ortaback.service.AuthService;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -36,6 +37,7 @@ public class AuthServiceImpl implements AuthService {
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider tokenProvider;
     private final JwtProperties jwtProperties;
+    private final TokenBlacklistService tokenBlacklistService;
 
     // -----------------------------------------------------------------------
 
@@ -110,12 +112,41 @@ public class AuthServiceImpl implements AuthService {
             throw new InvalidTokenException("Provided token is not a refresh token");
         }
 
+        String jti = tokenProvider.getJti(refreshToken);
+        if (jti != null && tokenBlacklistService.isBlacklisted(jti)) {
+            throw new InvalidTokenException("Refresh token has been revoked");
+        }
+
         String email = tokenProvider.getUsername(refreshToken);
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new InvalidTokenException(
                         "User behind refresh token no longer exists"));
 
+        // Rotation: использованный refresh уходит в blacklist, чтобы тот же
+        // токен не сработал второй раз, даже если кто-то его перехватил.
+        if (jti != null) {
+            tokenBlacklistService.blacklist(jti, tokenProvider.getExpiresAt(refreshToken));
+        }
+
         return issueTokens(user);
+    }
+
+    @Override
+    public void logout(String refreshToken) {
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+        if (!tokenProvider.isValid(refreshToken)) {
+            // Уже мёртвый / битый токен — идемпотентно.
+            return;
+        }
+        if (!tokenProvider.isRefreshToken(refreshToken)) {
+            throw new InvalidTokenException("Provided token is not a refresh token");
+        }
+        String jti = tokenProvider.getJti(refreshToken);
+        if (jti != null) {
+            tokenBlacklistService.blacklist(jti, tokenProvider.getExpiresAt(refreshToken));
+        }
     }
 
     // -----------------------------------------------------------------------

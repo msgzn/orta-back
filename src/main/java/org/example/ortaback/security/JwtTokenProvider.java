@@ -99,6 +99,17 @@ public class JwtTokenProvider {
         }
     }
 
+    /** JTI (JWT ID) — уникальный идентификатор токена для blacklist'а. */
+    public String getJti(String token) {
+        return parseClaims(token).getId();
+    }
+
+    /** Момент истечения токена — нужен для TTL записи в Redis-blacklist. */
+    public Instant getExpiresAt(String token) {
+        Date exp = parseClaims(token).getExpiration();
+        return exp != null ? exp.toInstant() : Instant.EPOCH;
+    }
+
     // ------------------------------------------------------------------ internals
 
     private String buildToken(UserDetails user, long ttlMs, String type) {
@@ -110,6 +121,7 @@ public class JwtTokenProvider {
                 .toList();
 
         return Jwts.builder()
+                .id(java.util.UUID.randomUUID().toString())   // JTI для blacklist'а
                 .issuer(properties.issuer())
                 .subject(user.getUsername())
                 .issuedAt(Date.from(now))
