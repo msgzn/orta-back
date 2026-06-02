@@ -2,6 +2,7 @@ package org.example.ortaback.controller;
 
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventSearchCriteria;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.CreatorMiniDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
@@ -18,6 +19,7 @@ import org.example.ortaback.service.EventService;
 import org.example.ortaback.testsupport.MockMvcTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.test.web.servlet.MockMvc;
@@ -25,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -67,7 +70,8 @@ class EventControllerTest extends MockMvcTestSupport {
                 10L, "Football", null,
                 1L, "U", "U", null,
                 0.0f,           // creatorTrustScore
-                1L,
+                1L,             // participantsCount
+                2L,             // observersCount
                 null);
     }
 
@@ -103,6 +107,67 @@ class EventControllerTest extends MockMvcTestSupport {
                 .andExpect(status().isOk());
 
         verify(eventService).findRecommended(eq(null), eq(0), eq(20), any());
+    }
+
+    // -----------------------------------------------------------------------
+    //  /events/search (ТЗ §4.3)
+    // -----------------------------------------------------------------------
+
+    @Test
+    void search_bindsScalarParamsIntoCriteria() throws Exception {
+        EventFeedItemDto item = new EventFeedItemDto(
+                100L, "Football Match", "Gym", "Almaty",
+                43.22, 76.85, LocationPrecision.EXACT,
+                LocalDateTime.of(2026, 6, 1, 18, 0), 90, 10, 1L, null, EventStatus.ACTIVE,
+                10L, "Football", null,
+                new CreatorMiniDto(1L, "U", "U", null, 0.0f),
+                null);
+        when(eventService.searchEvents(any(), eq(0), eq(20), any()))
+                .thenReturn(new PageDto<>(List.of(item), 0, 20, 1, 1, false, false));
+
+        mvc.perform(get("/api/v1/events/search")
+                        .param("q", "football")
+                        .param("categoryId", "10")
+                        .param("free", "true")
+                        .param("minGroup", "2")
+                        .param("maxGroup", "12")
+                        .param("organizerMinTrust", "30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content[0].title").value("Football Match"))
+                .andExpect(jsonPath("$.totalElements").value(1));
+
+        ArgumentCaptor<EventSearchCriteria> captor = ArgumentCaptor.forClass(EventSearchCriteria.class);
+        verify(eventService).searchEvents(captor.capture(), eq(0), eq(20), any());
+        EventSearchCriteria c = captor.getValue();
+        assertThat(c.q()).isEqualTo("football");
+        assertThat(c.categoryId()).isEqualTo(10L);
+        assertThat(c.free()).isTrue();
+        assertThat(c.minGroup()).isEqualTo(2);
+        assertThat(c.maxGroup()).isEqualTo(12);
+        assertThat(c.organizerMinTrust()).isEqualTo(30f);
+    }
+
+    @Test
+    void search_bindsGeoAndDateRangeParamsIntoCriteria() throws Exception {
+        when(eventService.searchEvents(any(), anyInt(), anyInt(), any()))
+                .thenReturn(new PageDto<>(List.of(), 0, 20, 0, 0, false, false));
+
+        mvc.perform(get("/api/v1/events/search")
+                        .param("lat", "43.238")
+                        .param("lng", "76.945")
+                        .param("maxDistanceM", "1000")
+                        .param("from", "2026-06-01T00:00:00")
+                        .param("to", "2026-12-31T23:59:59"))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<EventSearchCriteria> captor = ArgumentCaptor.forClass(EventSearchCriteria.class);
+        verify(eventService).searchEvents(captor.capture(), anyInt(), anyInt(), any());
+        EventSearchCriteria c = captor.getValue();
+        assertThat(c.lat()).isEqualTo(43.238);
+        assertThat(c.lng()).isEqualTo(76.945);
+        assertThat(c.maxDistanceM()).isEqualTo(1000.0);
+        assertThat(c.from()).isEqualTo(LocalDateTime.of(2026, 6, 1, 0, 0, 0));
+        assertThat(c.to()).isEqualTo(LocalDateTime.of(2026, 12, 31, 23, 59, 59));
     }
 
     // -----------------------------------------------------------------------
@@ -164,7 +229,9 @@ class EventControllerTest extends MockMvcTestSupport {
         mvc.perform(get("/api/v1/events/100"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(100))
-                .andExpect(jsonPath("$.status").value("ACTIVE"));
+                .andExpect(jsonPath("$.status").value("ACTIVE"))
+                .andExpect(jsonPath("$.participantsCount").value(1))
+                .andExpect(jsonPath("$.observersCount").value(2));
     }
 
     @Test

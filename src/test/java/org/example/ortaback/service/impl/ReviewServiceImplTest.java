@@ -3,6 +3,7 @@ package org.example.ortaback.service.impl;
 import org.example.ortaback.dto.request.ParticipantReviewRequestDto;
 import org.example.ortaback.dto.request.PromoterReviewRequestDto;
 import org.example.ortaback.dto.request.VenueRatingRequestDto;
+import org.example.ortaback.dto.response.UserStatsDto;
 import org.example.ortaback.exception.EventStateException;
 import org.example.ortaback.exception.ResourceAlreadyExistsException;
 import org.example.ortaback.persistence.models.Event;
@@ -11,6 +12,7 @@ import org.example.ortaback.persistence.models.EventReview;
 import org.example.ortaback.persistence.models.TrustScoreEvent;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
+import org.example.ortaback.persistence.models.enums.NotificationType;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
 import org.example.ortaback.persistence.models.enums.ReviewType;
 import org.example.ortaback.persistence.models.enums.Sentiment;
@@ -21,6 +23,7 @@ import org.example.ortaback.persistence.repository.EventRepository;
 import org.example.ortaback.persistence.repository.EventReviewRepository;
 import org.example.ortaback.persistence.repository.TrustScoreEventRepository;
 import org.example.ortaback.persistence.repository.UserRepository;
+import org.example.ortaback.service.NotificationService;
 import org.example.ortaback.service.SentimentAnalyzer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,6 +54,7 @@ class ReviewServiceImplTest {
     @Mock UserRepository userRepository;
     @Mock TrustScoreEventRepository trustScoreEventRepository;
     @Mock SentimentAnalyzer sentimentAnalyzer;
+    @Mock NotificationService notificationService;
 
     ReviewServiceImpl reviewService;
 
@@ -61,7 +66,8 @@ class ReviewServiceImplTest {
     void setUp() {
         reviewService = new ReviewServiceImpl(
                 eventRepository, reviewRepository, participantRepository,
-                userRepository, trustScoreEventRepository, sentimentAnalyzer);
+                userRepository, trustScoreEventRepository, sentimentAnalyzer,
+                notificationService);
     }
 
     // =======================================================================
@@ -238,6 +244,74 @@ class ReviewServiceImplTest {
     // =======================================================================
     //  Helpers
     // =======================================================================
+
+    // =======================================================================
+    //  TRUST_LEVEL_UP notification (ТЗ §4.2)
+    // =======================================================================
+
+    @Test
+    void trustChange_crossingThreshold_emitsLevelUpNotification() {
+        stubReviewParticipantFlow();
+        participant.setTrustScore(10f);                       // ниже порога «Свой» (12)
+        when(sentimentAnalyzer.analyze("great game")).thenReturn(Sentiment.POSITIVE);
+
+        reviewService.reviewParticipant(
+                100L, new ParticipantReviewRequestDto(2L, true, "great game"), promoter);
+
+        assertThat(participant.getTrustScore()).isEqualTo(15f);   // 10 + 5, пересёк 12
+        verify(notificationService).create(
+                eq(participant), eq(NotificationType.TRUST_LEVEL_UP), isNull(), eq(doneEvent), any());
+    }
+
+    @Test
+    void trustChange_noThresholdCrossing_doesNotEmitLevelUp() {
+        stubReviewParticipantFlow();                          // participant на 50f
+        when(sentimentAnalyzer.analyze("great game")).thenReturn(Sentiment.POSITIVE);
+
+        reviewService.reviewParticipant(
+                100L, new ParticipantReviewRequestDto(2L, true, "great game"), promoter);
+
+        assertThat(participant.getTrustScore()).isEqualTo(55f);   // 50 + 5, порог не задет
+        verify(notificationService, never()).create(any(), any(), any(), any(), any());
+    }
+
+    // =======================================================================
+    //  getUserStats — агрегаты профиля (ТЗ §4.5)
+    // =======================================================================
+
+    @Test
+    void getUserStats_computesAggregates_avgRatingAlwaysNull() {
+        when(userRepository.existsById(2L)).thenReturn(true);
+        when(eventRepository.countByCreatorId(2L)).thenReturn(3L);
+        when(eventRepository.countByCreatorIdAndStatus(2L, EventStatus.CANCELED)).thenReturn(1L);
+        when(participantRepository.countByUserIdAndStatus(2L, ParticipantStatus.JOINED)).thenReturn(5L);
+        when(reviewRepository.countParticipantAttendance(2L, true)).thenReturn(4L);
+        when(reviewRepository.countParticipantAttendance(2L, false)).thenReturn(1L);
+
+        UserStatsDto stats = reviewService.getUserStats(2L);
+
+        assertThat(stats.eventsCreated()).isEqualTo(3L);
+        assertThat(stats.eventsCancelled()).isEqualTo(1L);
+        assertThat(stats.eventsJoined()).isEqualTo(5L);
+        assertThat(stats.eventsAttended()).isEqualTo(4L);
+        assertThat(stats.attendanceRate()).isEqualTo(0.8d);       // 4 / (4 + 1)
+        assertThat(stats.avgRating()).isNull();                   // персонального рейтинга нет
+    }
+
+    @Test
+    void getUserStats_noAttendanceMarks_attendanceRateNull() {
+        when(userRepository.existsById(2L)).thenReturn(true);
+        when(eventRepository.countByCreatorId(2L)).thenReturn(0L);
+        when(eventRepository.countByCreatorIdAndStatus(2L, EventStatus.CANCELED)).thenReturn(0L);
+        when(participantRepository.countByUserIdAndStatus(2L, ParticipantStatus.JOINED)).thenReturn(0L);
+        when(reviewRepository.countParticipantAttendance(2L, true)).thenReturn(0L);
+        when(reviewRepository.countParticipantAttendance(2L, false)).thenReturn(0L);
+
+        UserStatsDto stats = reviewService.getUserStats(2L);
+
+        assertThat(stats.attendanceRate()).isNull();
+        assertThat(stats.avgRating()).isNull();
+    }
 
     private void stubReviewParticipantFlow() {
         when(eventRepository.findById(100L)).thenReturn(Optional.of(doneEvent));

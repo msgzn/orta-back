@@ -9,8 +9,8 @@ import jakarta.validation.constraints.Size;
  * Регистрация нового пользователя.
  *
  * <p>{@code universityId} опционален: если не передан, сервер пытается
- * автоматически определить ВУЗ по доменному шаблону email
- * ({@code University.domainPattern}).
+ * автоматически определить ВУЗ суффикс-матчем домена email по набору
+ * доменов ВУЗа ({@code University.domains}).
  *
  * <p>{@code nickname} опционален: если занят — сервис вернёт 409.
  */

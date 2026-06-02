@@ -6,6 +6,7 @@ import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.geo.EventMapMarkerDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventSearchCriteria;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
@@ -84,6 +85,18 @@ public interface EventService {
      * (sort=recent).
      */
     PageDto<EventFeedItemDto> findRecommended(Long categoryId, int page, int size, User viewer);
+
+    /**
+     * Расширенный поиск (ТЗ §4.3): full-text по title+description + фильтры по
+     * категории, диапазону {@code startTime}, гео-радиусу, цене (free),
+     * размеру группы и минимальному trust организатора. Возвращает
+     * {@link EventStatus#ACTIVE}-события страницей {@link EventFeedItemDto},
+     * отсортированные по {@code startTime asc}.
+     *
+     * <p>Гео-фильтр — «всё или ничего»: {@code lat}/{@code lng}/{@code maxDistanceM}
+     * должны передаваться вместе, иначе — {@code InvalidCoordinatesException}.
+     */
+    PageDto<EventFeedItemDto> searchEvents(EventSearchCriteria criteria, int page, int size, User viewer);
 
     // ---------------- Lifecycle: start / finish ---------------------------
 

@@ -29,8 +29,8 @@ class CategoryControllerTest extends MockMvcTestSupport {
     @Test
     void listFlat_returnsOkAndDelegatesToService() throws Exception {
         when(categoryService.listAll()).thenReturn(List.of(
-                new CategoryDto(1L, null, "Sport", null),
-                new CategoryDto(2L, 1L, "Basketball", null)
+                new CategoryDto(1L, null, "sport", "Sport", null),
+                new CategoryDto(2L, 1L, null, "Basketball", null)
         ));
 
         mvc.perform(get("/api/v1/categories"))
@@ -42,8 +42,8 @@ class CategoryControllerTest extends MockMvcTestSupport {
 
     @Test
     void tree_returnsOkWithNestedChildren() throws Exception {
-        CategoryTreeNodeDto child = new CategoryTreeNodeDto(2L, 1L, "Basketball", null, null);
-        CategoryTreeNodeDto root = new CategoryTreeNodeDto(1L, null, "Sport", null, List.of(child));
+        CategoryTreeNodeDto child = new CategoryTreeNodeDto(2L, 1L, null, "Basketball", null, null);
+        CategoryTreeNodeDto root = new CategoryTreeNodeDto(1L, null, "sport", "Sport", null, List.of(child));
         when(categoryService.listTree()).thenReturn(List.of(root));
 
         mvc.perform(get("/api/v1/categories/tree"))

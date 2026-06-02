@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventSearchCriteria;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.request.ParticipantReviewRequestDto;
 import org.example.ortaback.dto.request.PromoterReviewRequestDto;
@@ -17,6 +18,7 @@ import org.example.ortaback.dto.response.ParticipantResponseDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.service.EventService;
 import org.example.ortaback.service.ReviewService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -32,6 +34,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @RestController
@@ -67,6 +70,39 @@ public class EventController {
             return eventService.findRecommended(categoryId, page, size, currentUser);
         }
         return eventService.findFeed(categoryId, page, size, currentUser);
+    }
+
+    /**
+     * Расширенный поиск событий (ТЗ §4.3). Все фильтры опциональны.
+     * Гео-параметры {@code lat}/{@code lng}/{@code maxDistanceM} передаются
+     * вместе либо не передаются вовсе. Фильтры «с друзьями» и «с едой» в v1
+     * не поддержаны (см. ТЗ §4.3/§4.4).
+     *
+     * @param from нижняя граница {@code startTime} (ISO-8601, напр. {@code 2026-06-01T18:00:00})
+     * @param to   верхняя граница {@code startTime} (ISO-8601)
+     */
+    @Operation(summary = "Расширенный поиск событий: full-text + фильтры + гео (ТЗ §4.3)")
+    @GetMapping("/search")
+    public PageDto<EventFeedItemDto> search(
+            @RequestParam(required = false) String q,
+            @RequestParam(required = false) Long categoryId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
+            @RequestParam(required = false) Double lat,
+            @RequestParam(required = false) Double lng,
+            @RequestParam(required = false) Double maxDistanceM,
+            @RequestParam(required = false) Boolean free,
+            @RequestParam(required = false) Integer minGroup,
+            @RequestParam(required = false) Integer maxGroup,
+            @RequestParam(required = false) Float organizerMinTrust,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @AuthenticationPrincipal User currentUser) {
+
+        EventSearchCriteria criteria = new EventSearchCriteria(
+                q, categoryId, from, to, lat, lng, maxDistanceM,
+                free, minGroup, maxGroup, organizerMinTrust);
+        return eventService.searchEvents(criteria, page, size, currentUser);
     }
 
     @Operation(summary = "Создать событие — creator становится JOINED-участником")

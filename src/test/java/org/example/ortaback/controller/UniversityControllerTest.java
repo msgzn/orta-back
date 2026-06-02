@@ -29,8 +29,8 @@ class UniversityControllerTest extends MockMvcTestSupport {
     @Test
     void list_returnsAllUniversities() throws Exception {
         when(universityService.listAll()).thenReturn(List.of(
-                new UniversityDto(1L, "KazNU", "@kaznu.kz", "Almaty"),
-                new UniversityDto(2L, "AITU", "@aitu.kz", "Astana")
+                new UniversityDto(1L, "KazNU", "@kaznu.kz", List.of("@kaznu.kz"), "Almaty"),
+                new UniversityDto(2L, "AITU", "@aitu.kz", List.of("@aitu.kz"), "Astana")
         ));
 
         mvc.perform(get("/api/v1/universities"))
@@ -43,7 +43,7 @@ class UniversityControllerTest extends MockMvcTestSupport {
     @Test
     void getById_returnsSingle() throws Exception {
         when(universityService.getById(1L))
-                .thenReturn(new UniversityDto(1L, "KazNU", "@kaznu.kz", "Almaty"));
+                .thenReturn(new UniversityDto(1L, "KazNU", "@kaznu.kz", List.of("@kaznu.kz"), "Almaty"));
 
         mvc.perform(get("/api/v1/universities/1"))
                 .andExpect(status().isOk())

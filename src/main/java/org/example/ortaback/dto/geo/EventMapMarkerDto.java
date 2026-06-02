@@ -20,6 +20,8 @@ public record EventMapMarkerDto(
         String title,
         Double lat,
         Double lng,
+        Long categoryId,
+        String categorySlug,
         String categoryIcon,
         long participantsCount,
         LocationPrecision locationPrecision

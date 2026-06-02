@@ -30,4 +30,19 @@ public interface EventReviewRepository extends JpaRepository<EventReview, Long> 
                                             @Param("reviewerId") Long reviewerId,
                                             @Param("targetId") Long targetId,
                                             @Param("type") ReviewType type);
+
+    /**
+     * Сколько раз промоутер отметил присутствие ({@code came=true}) или неявку
+     * ({@code came=false}) данного пользователя — отзывы типа
+     * {@link ReviewType#PARTICIPANT_BY_PROMOTER} с {@code target=userId}.
+     * Используется агрегатами профиля (ТЗ §4.5): attended / no-show.
+     */
+    @Query("""
+            SELECT COUNT(r)
+              FROM EventReview r
+             WHERE r.type      = org.example.ortaback.persistence.models.enums.ReviewType.PARTICIPANT_BY_PROMOTER
+               AND r.target.id = :userId
+               AND r.came      = :came
+            """)
+    long countParticipantAttendance(@Param("userId") Long userId, @Param("came") boolean came);
 }

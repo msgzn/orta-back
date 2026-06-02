@@ -53,6 +53,17 @@ public class Category {
     @Column(name = "icon_url", length = 500)
     private String iconUrl;
 
+    /**
+     * Стабильный машинный ключ КОРНЕВОЙ категории ({@code sport/mind/games/…}).
+     * Фронт использует его как ключ к presentation-маппингу цвет/emoji (ТЗ §1.4):
+     * {@code name} может меняться, {@code slug} — нет. У подкатегорий обычно
+     * {@code null} (цвет наследуется от корня). Заполняется сидером, не
+     * пользователем; уникальность гарантирует сидер (без DB-constraint, чтобы
+     * не цеплять {@code ddl-auto:update}).
+     */
+    @Column(name = "slug", length = 50)
+    private String slug;
+
     // --- Обратные связи -----------------------------------------------------
 
     @OneToMany(mappedBy = "parent", fetch = FetchType.LAZY)

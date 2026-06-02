@@ -25,6 +25,7 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -109,7 +110,7 @@ class AuthServiceImplTest {
 
         when(userRepository.existsByEmail(anyString())).thenReturn(false);
         when(userRepository.existsByPhoneNumber(anyString())).thenReturn(false);
-        when(universityRepository.findByDomainPattern("@kaznu.kz")).thenReturn(Optional.of(kaznu));
+        when(universityRepository.findAllByEmailHost("kaznu.kz")).thenReturn(List.of(kaznu));
         when(passwordEncoder.encode(anyString())).thenReturn("BCRYPT");
         when(userRepository.save(any(User.class))).thenAnswer(inv -> inv.getArgument(0));
         when(tokenProvider.generateAccessToken(any())).thenReturn("at");

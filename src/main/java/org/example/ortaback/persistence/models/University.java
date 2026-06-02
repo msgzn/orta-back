@@ -1,11 +1,14 @@
 package org.example.ortaback.persistence.models;
 
+import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
+import jakarta.persistence.ElementCollection;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
@@ -45,9 +48,28 @@ public class University {
     @Column(nullable = false, unique = true, length = 200)
     private String name;
 
-    /** Шаблон домена студенческой почты, например {@code @student.kaznu.kz}. */
+    /**
+     * Основной домен для ОТОБРАЖЕНИЯ («ты регистрируешься как студент X»),
+     * напр. {@code kaznu.kz}. Авто-привязка по почте матчится НЕ по этому
+     * одному полю, а по полному набору {@link #domains} (суффикс-матч);
+     * primary-домен входит в {@code domains} тоже.
+     */
     @Column(name = "domain_pattern", nullable = false, length = 100)
     private String domainPattern;
+
+    /**
+     * Все домены ВУЗа для авто-детекта по email — голые, без {@code @}
+     * (напр. {@code kaznu.kz}, {@code farabi.university}). Матчинг суффиксный:
+     * host письма равен домену ИЛИ заканчивается на {@code .<домен>}
+     * (так {@code @stu.kaznu.kz} попадает в {@code kaznu.kz}).
+     */
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(
+            name = "university_domain",
+            joinColumns = @JoinColumn(name = "university_id"))
+    @Column(name = "domain", nullable = false, length = 100)
+    @Builder.Default
+    private Set<String> domains = new HashSet<>();
 
     /**
      * Координаты главного кампуса (SRID 4326 — WGS 84).

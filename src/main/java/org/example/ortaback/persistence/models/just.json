@@ -1,0 +1,13 @@
+```json
+{
+  "success": true,
+  "data": {
+    "id": 42,
+    "title": "Basketball game",
+    "category": "Team sports",
+    "participants_count": 8
+    },
+  "message": "The operation has been performed successfully",
+  "timestamp": "2026-05-11T14:30:00Z"
+}
+```

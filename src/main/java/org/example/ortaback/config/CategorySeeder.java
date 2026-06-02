@@ -42,29 +42,31 @@ public class CategorySeeder implements ApplicationRunner {
     /**
      * Дерево категорий: корневая → её дети (могут быть пустые).
      * Имена ровно те, что прислал бизнес — менять без согласования
-     * с фронтом не стоит, иконки/локализацию фронт мапит по name.
+     * с фронтом не стоит. У корневых задан стабильный {@code slug}
+     * (ТЗ §1.4): по нему фронт мапит цвет/emoji, не завязываясь на
+     * изменяемое {@code name}; у подкатегорий slug = {@code null}.
      */
     private static final List<RootCategory> TREE = List.of(
-            new RootCategory("Спорт", List.of(
+            new RootCategory("Спорт", "sport", List.of(
                     "Футбол", "Баскетбол", "Теннис", "Бег",
                     "Тренажёрный зал", "Плавание"
             )),
-            new RootCategory("Интеллектуальные активности", List.of(
+            new RootCategory("Интеллектуальные активности", "mind", List.of(
                     "Настольные игры", "Шахматы", "Квизы"
             )),
-            new RootCategory("Творческие активности", List.of(
+            new RootCategory("Творческие активности", "creative", List.of(
                     "Рисование", "Музицирование", "Фотопрогулки"
             )),
-            new RootCategory("Образовательные встречи", List.of(
+            new RootCategory("Образовательные встречи", "edu", List.of(
                     "Учебные группы", "Языковые клубы", "Хакатоны"
             )),
-            new RootCategory("Досуг", List.of(
+            new RootCategory("Досуг", "leisure", List.of(
                     "Кино", "Концерты", "Выставки", "Прогулки"
             )),
-            new RootCategory("Путешествия и походы", List.of()),
-            new RootCategory("Кулинария и совместные ужины", List.of()),
-            new RootCategory("Волонтёрство", List.of()),
-            new RootCategory("Онлайн-игры", List.of(
+            new RootCategory("Путешествия и походы", "travel", List.of()),
+            new RootCategory("Кулинария и совместные ужины", "food", List.of()),
+            new RootCategory("Волонтёрство", "volunteer", List.of()),
+            new RootCategory("Онлайн-игры", "games", List.of(
                     "CS2", "FastCup", "PUBG", "Компьютерный клуб"
             ))
     );
@@ -74,9 +76,9 @@ public class CategorySeeder implements ApplicationRunner {
     public void run(ApplicationArguments args) {
         long before = categoryRepository.count();
         for (RootCategory root : TREE) {
-            Category rootEntity = ensure(root.name(), null);
+            Category rootEntity = ensure(root.name(), null, root.slug());
             for (String child : root.children()) {
-                ensure(child, rootEntity);
+                ensure(child, rootEntity, null);
             }
         }
         long after = categoryRepository.count();
@@ -90,15 +92,25 @@ public class CategorySeeder implements ApplicationRunner {
 
     /**
      * Возвращает существующую категорию или создаёт новую с указанным
-     * родителем.
+     * родителем и slug. Если категория уже есть, но без slug (засижена до
+     * появления поля) — бэкфилл: проставляем slug и сохраняем. Идемпотентно
+     * и самовосстанавливаемо, как и остальной сидер.
      */
-    private Category ensure(String name, Category parent) {
-        return categoryRepository.findByName(name)
-                .orElseGet(() -> categoryRepository.save(Category.builder()
-                        .name(name)
-                        .parent(parent)
-                        .build()));
+    private Category ensure(String name, Category parent, String slug) {
+        Category existing = categoryRepository.findByName(name).orElse(null);
+        if (existing != null) {
+            if (slug != null && !slug.equals(existing.getSlug())) {
+                existing.setSlug(slug);
+                categoryRepository.save(existing);
+            }
+            return existing;
+        }
+        return categoryRepository.save(Category.builder()
+                .name(name)
+                .parent(parent)
+                .slug(slug)
+                .build());
     }
 
-    private record RootCategory(String name, List<String> children) {}
+    private record RootCategory(String name, String slug, List<String> children) {}
 }

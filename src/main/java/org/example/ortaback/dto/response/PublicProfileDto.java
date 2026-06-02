@@ -19,5 +19,6 @@ public record PublicProfileDto(
         Float trustScore,
         UniversityMiniDto university,
         LocalDateTime createdAt,
-        List<TrustScoreEventDto> recentActivity
+        List<TrustScoreEventDto> recentActivity,
+        UserStatsDto stats
 ) {}

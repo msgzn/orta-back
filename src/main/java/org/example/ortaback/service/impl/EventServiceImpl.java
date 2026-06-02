@@ -9,6 +9,7 @@ import org.example.ortaback.dto.geo.EventMapMarkerDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureCollectionDto;
 import org.example.ortaback.dto.geo.geojson.GeoJsonFeatureDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventSearchCriteria;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
 import org.example.ortaback.dto.response.EventFeedItemDto;
 import org.example.ortaback.dto.response.PageDto;
@@ -34,13 +35,16 @@ import org.example.ortaback.persistence.models.EventParticipant;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
 import org.example.ortaback.persistence.models.enums.LocationPrecision;
+import org.example.ortaback.persistence.models.enums.NotificationType;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
 import org.example.ortaback.persistence.models.enums.UserRole;
 import org.example.ortaback.persistence.projection.EventClusterProjection;
 import org.example.ortaback.persistence.repository.CategoryRepository;
 import org.example.ortaback.persistence.repository.EventParticipantRepository;
 import org.example.ortaback.persistence.repository.EventRepository;
+import org.example.ortaback.service.ChatService;
 import org.example.ortaback.service.EventService;
+import org.example.ortaback.service.NotificationService;
 import org.locationtech.jts.geom.Point;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,6 +85,8 @@ public class EventServiceImpl implements EventService {
     private final EventMapMapper mapper;
     private final ParticipantMapper participantMapper;
     private final StorageService storageService;
+    private final NotificationService notificationService;
+    private final ChatService chatService;
 
     // =======================================================================
     //  Geo / map
@@ -201,7 +207,7 @@ public class EventServiceImpl implements EventService {
                 .status(ParticipantStatus.JOINED)
                 .build());
 
-        return mapper.toDetail(event, event.getLocation(), 1L);
+        return mapper.toDetail(event, event.getLocation(), 1L, 0L);
     }
 
     @Override
@@ -214,7 +220,8 @@ public class EventServiceImpl implements EventService {
         Point visibleLocation = visibleLocationFor(event, viewer, joinedEventIds);
 
         long count = participantRepository.countByEventIdAndStatus(id, ParticipantStatus.JOINED);
-        return mapper.toDetail(event, visibleLocation, count);
+        long observers = observationRepository.countByEventId(id);
+        return mapper.toDetail(event, visibleLocation, count, observers);
     }
 
     @Override
@@ -264,8 +271,9 @@ public class EventServiceImpl implements EventService {
         // Dirty checking — entity managed, изменения улетят на commit.
 
         long count = participantRepository.countByEventIdAndStatus(id, ParticipantStatus.JOINED);
+        long observers = observationRepository.countByEventId(id);
         // Креатор/admin — всегда видит реальные координаты.
-        return mapper.toDetail(event, event.getLocation(), count);
+        return mapper.toDetail(event, event.getLocation(), count, observers);
     }
 
     @Override
@@ -280,6 +288,7 @@ public class EventServiceImpl implements EventService {
             return;
         }
         event.setStatus(EventStatus.CANCELED);
+        chatService.postSystemMessage(event, "Событие отменено");
     }
 
     // =======================================================================
@@ -310,6 +319,8 @@ public class EventServiceImpl implements EventService {
                 case LEFT -> {
                     enforceCapacity(event);
                     p.setStatus(ParticipantStatus.JOINED);
+                    notifyCreatorOfJoin(event, user);
+                    chatService.postSystemMessage(event, displayName(user) + " присоединился к событию");
                 }
             }
             return;
@@ -322,6 +333,8 @@ public class EventServiceImpl implements EventService {
                 .status(ParticipantStatus.JOINED)
                 .build());
         event.touchActivity();
+        notifyCreatorOfJoin(event, user);
+        chatService.postSystemMessage(event, displayName(user) + " присоединился к событию");
 
         // TODO: если participantsCount достиг minParticipants — отправить
         //       push «There are enough members» всем observer'ам через FCM
@@ -345,6 +358,7 @@ public class EventServiceImpl implements EventService {
             return;
         }
         p.setStatus(ParticipantStatus.LEFT);
+        chatService.postSystemMessage(p.getEvent(), displayName(user) + " покинул событие");
     }
 
     @Override
@@ -373,6 +387,38 @@ public class EventServiceImpl implements EventService {
         Page<Event> events = eventRepository.findFeed(categoryId, pageable);
         Page<EventFeedItemDto> mapped = mapPageToFeed(events, viewer);
         return PageDto.of(mapped);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PageDto<EventFeedItemDto> searchEvents(EventSearchCriteria criteria, int page, int size, User viewer) {
+        // Гео — «всё или ничего»: без полной тройки ST_DWithin молча отфильтровал
+        // бы всё (NULL-арифметика), поэтому валидируем явно.
+        boolean anyGeo = criteria.lat() != null || criteria.lng() != null || criteria.maxDistanceM() != null;
+        boolean allGeo = criteria.lat() != null && criteria.lng() != null && criteria.maxDistanceM() != null;
+        if (anyGeo && !allGeo) {
+            throw new InvalidCoordinatesException(
+                    "lat, lng and maxDistanceM must be provided together for geo search");
+        }
+        if (allGeo) {
+            coordinateValidator.validateLatLng(criteria.lat(), criteria.lng());
+            if (criteria.maxDistanceM() <= 0) {
+                throw new InvalidCoordinatesException("maxDistanceM must be > 0");
+            }
+        }
+
+        // Сортировка зашита в нативном запросе — Pageable передаём БЕЗ Sort.
+        Pageable pageable = PageRequest.of(Math.max(0, page), clampSize(size));
+        Page<Event> events = eventRepository.search(
+                blankToNull(criteria.q()),
+                criteria.categoryId(),
+                criteria.from(), criteria.to(),
+                criteria.lat(), criteria.lng(), criteria.maxDistanceM(),
+                criteria.free(),
+                criteria.minGroup(), criteria.maxGroup(),
+                criteria.organizerMinTrust(),
+                pageable);
+        return PageDto.of(mapPageToFeed(events, viewer));
     }
 
     @Override
@@ -438,6 +484,7 @@ public class EventServiceImpl implements EventService {
         }
         event.setStartedAt(java.time.LocalDateTime.now());
         event.touchActivity();
+        chatService.postSystemMessage(event, "Событие началось");
 
         // TODO: push для всех JOINED — после подключения PushNotificationService.
     }
@@ -457,8 +504,56 @@ public class EventServiceImpl implements EventService {
         }
         event.setStatus(EventStatus.DONE);
         event.touchActivity();
+        chatService.postSystemMessage(event, "Событие завершено");
+
+        notifyRatePrompt(event);
 
         // TODO: push участникам с приглашением оценить (после FCM + Rating).
+    }
+
+    // -----------------------------------------------------------------------
+    //  Notification hooks (ТЗ §4.2) — in-app уведомления.
+    //  Создаются в той же транзакции: откатятся, если бизнес-операция упадёт.
+    // -----------------------------------------------------------------------
+
+    /** EVENT_JOIN: уведомляем креатора, что к его событию кто-то присоединился. */
+    private void notifyCreatorOfJoin(Event event, User joiner) {
+        User creator = event.getCreator();
+        if (creator == null || Objects.equals(creator.getId(), joiner.getId())) {
+            return; // не уведомляем создателя о собственном участии
+        }
+        notificationService.create(
+                creator,
+                NotificationType.EVENT_JOIN,
+                joiner,
+                event,
+                displayName(joiner) + " присоединился к «" + event.getTitle() + "»");
+    }
+
+    /** RATE_PROMPT: по завершении просим креатора и всех JOINED оставить оценку. */
+    private void notifyRatePrompt(Event event) {
+        String text = "Событие «" + event.getTitle() + "» завершено — оставьте оценку";
+        List<User> joined = participantRepository.findUsersByEventIdAndStatus(
+                event.getId(), ParticipantStatus.JOINED);
+        for (User participant : joined) {
+            notificationService.create(participant, NotificationType.RATE_PROMPT, null, event, text);
+        }
+        // Креатор обычно уже среди JOINED (авто-join при создании); страхуемся от
+        // дубля и от случая, когда его там нет.
+        User creator = event.getCreator();
+        if (creator != null && joined.stream().noneMatch(u -> Objects.equals(u.getId(), creator.getId()))) {
+            notificationService.create(creator, NotificationType.RATE_PROMPT, null, event, text);
+        }
+    }
+
+    private static String displayName(User u) {
+        String first = u.getFirstName() != null ? u.getFirstName() : "";
+        String last  = u.getLastName()  != null ? u.getLastName()  : "";
+        String full = (first + " " + last).trim();
+        if (!full.isEmpty()) {
+            return full;
+        }
+        return u.getNickname() != null ? u.getNickname() : "Пользователь";
     }
 
     // =======================================================================
@@ -663,6 +758,11 @@ public class EventServiceImpl implements EventService {
     private static int clampSize(int requested) {
         if (requested <= 0) return 20;
         return Math.min(requested, FEED_MAX_PAGE_SIZE);
+    }
+
+    /** Пустая/пробельная строка поиска → {@code null} (фильтр не применяется). */
+    private static String blankToNull(String s) {
+        return (s == null || s.isBlank()) ? null : s.trim();
     }
 
     /**

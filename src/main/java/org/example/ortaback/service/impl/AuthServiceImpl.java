@@ -158,16 +158,18 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /**
-     * Пытается найти ВУЗ по совпадению {@code domain_pattern} с суффиксом
-     * email'а ({@code @kaznu.kz}).
+     * Пытается найти ВУЗ суффикс-матчем host'а email по набору доменов ВУЗа:
+     * host равен домену ИЛИ заканчивается на {@code .<домен>}
+     * (так {@code @stu.kaznu.kz} → {@code kaznu.kz}). При нескольких
+     * совпадениях берём самое специфичное (длинный домен — первым в запросе).
      */
     private Optional<University> detectUniversityFromEmail(String email) {
         int at = email.indexOf('@');
-        if (at < 0) {
+        if (at < 0 || at == email.length() - 1) {
             return Optional.empty();
         }
-        String suffix = email.substring(at); // включает '@'
-        return universityRepository.findByDomainPattern(suffix);
+        String host = email.substring(at + 1); // host без '@', напр. stu.kaznu.kz
+        return universityRepository.findAllByEmailHost(host).stream().findFirst();
     }
 
     private static String normalizeEmail(String email) {

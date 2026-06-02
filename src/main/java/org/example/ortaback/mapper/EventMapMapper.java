@@ -40,13 +40,16 @@ public class EventMapMapper {
                 event.getTitle(),
                 visibleLocation.getY(),
                 visibleLocation.getX(),
+                category != null ? category.getId()   : null,
+                category != null ? category.getSlug() : null,
                 category != null ? category.getIconUrl() : null,
                 participantsCount,
                 event.getLocationPrecision()
         );
     }
 
-    public EventDetailDto toDetail(Event event, Point visibleLocation, long participantsCount) {
+    public EventDetailDto toDetail(Event event, Point visibleLocation,
+                                   long participantsCount, long observersCount) {
         Category category = event.getCategory();
         User creator = event.getCreator();
         return new EventDetailDto(
@@ -73,6 +76,7 @@ public class EventMapMapper {
                 creator.getAvatarUrl(),
                 creator.getTrustScore(),
                 participantsCount,
+                observersCount,
                 event.getCoverImageUrl()
         );
     }
@@ -86,6 +90,7 @@ public class EventMapMapper {
         properties.put("participantsCount", participantsCount);
         if (event.getCategory() != null) {
             properties.put("categoryId", event.getCategory().getId());
+            properties.put("categorySlug", event.getCategory().getSlug());
             properties.put("categoryIcon", event.getCategory().getIconUrl());
         }
         return GeoJsonConverter.toFeature(event.getId(), visibleLocation, properties);

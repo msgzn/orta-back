@@ -10,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -51,6 +52,25 @@ public interface EventRepository extends JpaRepository<Event, Long> {
     List<Event> findByCategoryId(Long categoryId);
 
     Page<Event> findByStatus(EventStatus status, Pageable pageable);
+
+    /** Сколько событий создал пользователь (агрегаты профиля, ТЗ §4.5). */
+    long countByCreatorId(Long creatorId);
+
+    /** Сколько созданных пользователем событий в заданном статусе (напр. CANCELED). */
+    long countByCreatorIdAndStatus(Long creatorId, EventStatus status);
+
+    /**
+     * {@code ACTIVE}-события, стартующие в окне {@code [from, to]} — источник для
+     * планировщика напоминаний (ТЗ §4.2, {@code EVENT_REMINDER}).
+     */
+    @Query("""
+            SELECT e
+              FROM Event e
+             WHERE e.status = org.example.ortaback.persistence.models.enums.EventStatus.ACTIVE
+               AND e.startTime BETWEEN :from AND :to
+            """)
+    List<Event> findActiveStartingBetween(@Param("from") LocalDateTime from,
+                                          @Param("to") LocalDateTime to);
 
     /** Cтраница событий пользователя как создателя, опционально по статусу. */
     @Query("""
@@ -95,14 +115,106 @@ public interface EventRepository extends JpaRepository<Event, Long> {
      * Лента событий: только {@code ACTIVE}, опциональный фильтр по категории.
      * Передавайте {@code null} в {@code categoryId}, чтобы вернуть все
      * категории. Сортировка задаётся через {@code Pageable}.
+     *
+     * <p><b>Иерархия категорий.</b> Фильтр учитывает 2-уровневую иерархию: при
+     * выборе КОРНЕВОЙ категории («Онлайн-игры») попадают и события её
+     * подкатегорий («CS2», «PUBG», …), а не только назначенные прямо на корень.
+     * Подкатегории ловим через подзапрос, а НЕ через путь {@code e.category.parent.id}
+     * — последний дал бы implicit INNER JOIN и выкинул бы события на корневых
+     * категориях (у которых {@code parent} = null).
      */
     @Query("""
             SELECT e
               FROM Event e
              WHERE e.status = org.example.ortaback.persistence.models.enums.EventStatus.ACTIVE
-               AND (:categoryId IS NULL OR e.category.id = :categoryId)
+               AND (:categoryId IS NULL
+                    OR e.category.id = :categoryId
+                    OR e.category.id IN (
+                           SELECT c.id FROM Category c WHERE c.parent.id = :categoryId))
             """)
     Page<Event> findFeed(@Param("categoryId") Long categoryId, Pageable pageable);
+
+    /**
+     * Расширенный поиск событий (ТЗ §4.3). Все фильтры опциональны и
+     * комбинируются по AND; {@code null}-фильтр игнорируется. Возвращаются
+     * только {@link EventStatus#ACTIVE}-события.
+     *
+     * <p><b>Full-text</b> — MVP через {@code ILIKE} по {@code title} +
+     * {@code description} (регистронезависимо). <b>Гео</b> — {@code ST_DWithin}
+     * с приведением к {@code geography} (радиус в метрах). <b>Trust организатора</b>
+     * — join к {@code users.trust_score}.
+     *
+     * <p>Сортировка зашита в SQL ({@code start_time asc, id asc}) — гео работает
+     * как фильтр, а не как порядок. Поэтому {@code pageable} следует передавать
+     * <b>без</b> {@code Sort} (только page/size), иначе Spring Data попытается
+     * добавить второй {@code ORDER BY}.
+     *
+     * <p>NB: каждый числовой / датовый / булев параметр обёрнут в
+     * {@code CAST(:p AS <type>) IS NULL} — это даёт PostgreSQL вывести тип при
+     * null-bind'е (иначе «could not determine data type of parameter $n»).
+     */
+    @Query(value = """
+            SELECT e.*
+              FROM event e
+              JOIN users u ON u.id = e.creator_id
+             WHERE e.status = 'ACTIVE'
+               AND (CAST(:q AS text) IS NULL
+                    OR e.title ILIKE '%' || :q || '%'
+                    OR e.description ILIKE '%' || :q || '%')
+               AND (CAST(:categoryId AS bigint) IS NULL OR e.category_id = :categoryId)
+               AND (CAST(:from AS timestamp) IS NULL OR e.start_time >= :from)
+               AND (CAST(:to   AS timestamp) IS NULL OR e.start_time <= :to)
+               AND (CAST(:lat AS double precision) IS NULL
+                    OR ST_DWithin(
+                           e.location::geography,
+                           ST_SetSRID(ST_MakePoint(CAST(:lng AS double precision),
+                                                   CAST(:lat AS double precision)), 4326)::geography,
+                           CAST(:maxDistanceM AS double precision)))
+               AND (CAST(:free AS boolean) IS NULL
+                    OR (:free = TRUE  AND (e.price_per_person IS NULL OR e.price_per_person = 0))
+                    OR (:free = FALSE AND e.price_per_person IS NOT NULL AND e.price_per_person > 0))
+               AND (CAST(:minGroup AS integer) IS NULL OR e.max_participants >= :minGroup)
+               AND (CAST(:maxGroup AS integer) IS NULL OR e.max_participants <= :maxGroup)
+               AND (CAST(:organizerMinTrust AS real) IS NULL OR u.trust_score >= :organizerMinTrust)
+             ORDER BY e.start_time ASC, e.id ASC
+            """,
+            countQuery = """
+            SELECT COUNT(*)
+              FROM event e
+              JOIN users u ON u.id = e.creator_id
+             WHERE e.status = 'ACTIVE'
+               AND (CAST(:q AS text) IS NULL
+                    OR e.title ILIKE '%' || :q || '%'
+                    OR e.description ILIKE '%' || :q || '%')
+               AND (CAST(:categoryId AS bigint) IS NULL OR e.category_id = :categoryId)
+               AND (CAST(:from AS timestamp) IS NULL OR e.start_time >= :from)
+               AND (CAST(:to   AS timestamp) IS NULL OR e.start_time <= :to)
+               AND (CAST(:lat AS double precision) IS NULL
+                    OR ST_DWithin(
+                           e.location::geography,
+                           ST_SetSRID(ST_MakePoint(CAST(:lng AS double precision),
+                                                   CAST(:lat AS double precision)), 4326)::geography,
+                           CAST(:maxDistanceM AS double precision)))
+               AND (CAST(:free AS boolean) IS NULL
+                    OR (:free = TRUE  AND (e.price_per_person IS NULL OR e.price_per_person = 0))
+                    OR (:free = FALSE AND e.price_per_person IS NOT NULL AND e.price_per_person > 0))
+               AND (CAST(:minGroup AS integer) IS NULL OR e.max_participants >= :minGroup)
+               AND (CAST(:maxGroup AS integer) IS NULL OR e.max_participants <= :maxGroup)
+               AND (CAST(:organizerMinTrust AS real) IS NULL OR u.trust_score >= :organizerMinTrust)
+            """,
+            nativeQuery = true)
+    Page<Event> search(@Param("q") String q,
+                       @Param("categoryId") Long categoryId,
+                       @Param("from") LocalDateTime from,
+                       @Param("to") LocalDateTime to,
+                       @Param("lat") Double lat,
+                       @Param("lng") Double lng,
+                       @Param("maxDistanceM") Double maxDistanceM,
+                       @Param("free") Boolean free,
+                       @Param("minGroup") Integer minGroup,
+                       @Param("maxGroup") Integer maxGroup,
+                       @Param("organizerMinTrust") Float organizerMinTrust,
+                       Pageable pageable);
 
     /**
      * AI-рекомендации: ближайшие по cosine-distance к вектору интересов
@@ -121,7 +233,9 @@ public interface EventRepository extends JpaRepository<Event, Long> {
               FROM event e
              WHERE e.status = 'ACTIVE'
                AND e.event_embedding IS NOT NULL
-               AND (:categoryId IS NULL OR e.category_id = :categoryId)
+               AND (:categoryId IS NULL
+                    OR e.category_id = :categoryId
+                    OR e.category_id IN (SELECT c.id FROM category c WHERE c.parent_id = :categoryId))
                AND NOT EXISTS (
                      SELECT 1 FROM event_participant ep
                       WHERE ep.event_id = e.id

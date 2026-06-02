@@ -8,6 +8,7 @@ import org.example.ortaback.dto.response.PublicProfileDto;
 import org.example.ortaback.dto.response.ReputationDto;
 import org.example.ortaback.dto.response.TrustScoreEventDto;
 import org.example.ortaback.dto.response.UniversityMiniDto;
+import org.example.ortaback.dto.response.UserStatsDto;
 import org.example.ortaback.exception.EventStateException;
 import org.example.ortaback.exception.ResourceAlreadyExistsException;
 import org.example.ortaback.exception.ResourceNotFoundException;
@@ -17,6 +18,7 @@ import org.example.ortaback.persistence.models.TrustScoreEvent;
 import org.example.ortaback.persistence.models.University;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
+import org.example.ortaback.persistence.models.enums.NotificationType;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
 import org.example.ortaback.persistence.models.enums.ReviewType;
 import org.example.ortaback.persistence.models.enums.Sentiment;
@@ -26,6 +28,7 @@ import org.example.ortaback.persistence.repository.EventRepository;
 import org.example.ortaback.persistence.repository.EventReviewRepository;
 import org.example.ortaback.persistence.repository.TrustScoreEventRepository;
 import org.example.ortaback.persistence.repository.UserRepository;
+import org.example.ortaback.service.NotificationService;
 import org.example.ortaback.service.ReviewService;
 import org.example.ortaback.service.SentimentAnalyzer;
 import org.springframework.data.domain.PageRequest;
@@ -50,12 +53,17 @@ public class ReviewServiceImpl implements ReviewService {
     static final int DELTA_PARTICIPANT_NO_SHOW = -10;
     static final int DELTA_PROMOTER_NO_SHOW   = -20;
 
+    /** Пороги уровней доверия (ТЗ §1.5): Свой ≥12, Надёжный ≥30, Эксперт ≥60. */
+    private static final int[] TRUST_LEVEL_THRESHOLDS = {12, 30, 60};
+    private static final String[] TRUST_LEVEL_NAMES   = {"Свой", "Надёжный", "Эксперт"};
+
     private final EventRepository eventRepository;
     private final EventReviewRepository reviewRepository;
     private final EventParticipantRepository participantRepository;
     private final UserRepository userRepository;
     private final TrustScoreEventRepository trustScoreEventRepository;
     private final SentimentAnalyzer sentimentAnalyzer;
+    private final NotificationService notificationService;
 
     // =======================================================================
     //  Write: участник / промоутер / площадка
@@ -203,13 +211,45 @@ public class ReviewServiceImpl implements ReviewService {
                 user.getTrustScore(),
                 universityMini,
                 user.getCreatedAt(),
-                recent
+                recent,
+                computeStats(userId)
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public UserStatsDto getUserStats(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("User not found: id=" + userId);
+        }
+        return computeStats(userId);
     }
 
     // =======================================================================
     //  Helpers
     // =======================================================================
+
+    /**
+     * Сводные агрегаты профиля (ТЗ §4.5). Чистый расчёт из существующих таблиц —
+     * без новых сущностей. См. {@link UserStatsDto} про семантику полей и почему
+     * {@code avgRating} всегда {@code null}.
+     */
+    private UserStatsDto computeStats(Long userId) {
+        long created   = eventRepository.countByCreatorId(userId);
+        long cancelled = eventRepository.countByCreatorIdAndStatus(userId, EventStatus.CANCELED);
+        long joined    = participantRepository.countByUserIdAndStatus(userId, ParticipantStatus.JOINED);
+        long attended  = reviewRepository.countParticipantAttendance(userId, true);
+        long noShow    = reviewRepository.countParticipantAttendance(userId, false);
+
+        long rated = attended + noShow;
+        Double attendanceRate = rated == 0 ? null : (double) attended / rated;
+
+        // avgRating: персонального звёздного рейтинга в модели нет (starRating
+        // только у VENUE) → честно null, клиент рисует «—». Детали — javadoc DTO.
+        Double avgRating = null;
+
+        return new UserStatsDto(created, joined, attended, cancelled, avgRating, attendanceRate);
+    }
 
     private Event loadDoneEvent(Long eventId) {
         Event event = eventRepository.findById(eventId)
@@ -244,7 +284,8 @@ public class ReviewServiceImpl implements ReviewService {
      */
     private void applyTrustChange(User target, int delta, TrustReason reason, Event source) {
         float current = target.getTrustScore() != null ? target.getTrustScore() : 0f;
-        target.setTrustScore(current + delta);
+        float updated = current + delta;
+        target.setTrustScore(updated);
 
         trustScoreEventRepository.save(TrustScoreEvent.builder()
                 .user(target)
@@ -252,6 +293,35 @@ public class ReviewServiceImpl implements ReviewService {
                 .reason(reason)
                 .event(source)
                 .build());
+
+        maybeNotifyTrustLevelUp(target, current, updated, source);
+    }
+
+    /**
+     * TRUST_LEVEL_UP (ТЗ §4.2): если рост trust пересёк порог уровня вверх —
+     * уведомляем пользователя. При пересечении нескольких порогов за один
+     * отзыв называем наивысший достигнутый уровень. Понижения и нулевые
+     * изменения уведомлений не порождают.
+     */
+    private void maybeNotifyTrustLevelUp(User target, float oldScore, float newScore, Event source) {
+        if (newScore <= oldScore) {
+            return;
+        }
+        String reached = null;
+        for (int i = 0; i < TRUST_LEVEL_THRESHOLDS.length; i++) {
+            int threshold = TRUST_LEVEL_THRESHOLDS[i];
+            if (oldScore < threshold && newScore >= threshold) {
+                reached = TRUST_LEVEL_NAMES[i];
+            }
+        }
+        if (reached != null) {
+            notificationService.create(
+                    target,
+                    NotificationType.TRUST_LEVEL_UP,
+                    null,
+                    source,
+                    "Новый уровень доверия: " + reached);
+        }
     }
 
     private static int computeParticipantDelta(Boolean came, Sentiment sentiment) {

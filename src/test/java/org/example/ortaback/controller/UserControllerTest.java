@@ -67,7 +67,7 @@ class UserControllerTest extends MockMvcTestSupport {
                 UserRole.USER, 0.0f, 10, "ru",
                 new UniversityMiniDto(7L, "KazNU"),
                 LocalDateTime.of(2026, 5, 1, 12, 0),
-                List.of(new CategoryDto(10L, null, "Football", null)),
+                List.of(new CategoryDto(10L, null, null, "Football", null)),
                 null);
         when(userService.getProfile(1L)).thenReturn(profile);
 
@@ -115,8 +115,8 @@ class UserControllerTest extends MockMvcTestSupport {
     @Test
     void listMyInterests_returnsCategoryList() throws Exception {
         when(userService.listInterests(1L)).thenReturn(List.of(
-                new CategoryDto(10L, null, "Football", null),
-                new CategoryDto(11L, null, "Basketball", null)));
+                new CategoryDto(10L, null, null, "Football", null),
+                new CategoryDto(11L, null, null, "Basketball", null)));
 
         mvc.perform(get("/api/v1/users/me/interests"))
                 .andExpect(status().isOk())

@@ -27,6 +27,7 @@ public class CategoryMapper {
         return new CategoryDto(
                 category.getId(),
                 parentId,
+                category.getSlug(),
                 category.getName(),
                 category.getIconUrl()
         );
@@ -43,6 +44,7 @@ public class CategoryMapper {
             byId.put(c.getId(), new MutableNode(
                     c.getId(),
                     c.getParent() != null ? c.getParent().getId() : null,
+                    c.getSlug(),
                     c.getName(),
                     c.getIconUrl()
             ));
@@ -70,7 +72,7 @@ public class CategoryMapper {
                 .map(this::freeze)
                 .toList();
         return new CategoryTreeNodeDto(
-                node.id, node.parentId, node.name, node.iconUrl,
+                node.id, node.parentId, node.slug, node.name, node.iconUrl,
                 frozenChildren.isEmpty() ? null : frozenChildren
         );
     }
@@ -78,13 +80,15 @@ public class CategoryMapper {
     private static final class MutableNode {
         final Long id;
         final Long parentId;
+        final String slug;
         final String name;
         final String iconUrl;
         final List<MutableNode> children = new ArrayList<>();
 
-        MutableNode(Long id, Long parentId, String name, String iconUrl) {
+        MutableNode(Long id, Long parentId, String slug, String name, String iconUrl) {
             this.id = id;
             this.parentId = parentId;
+            this.slug = slug;
             this.name = name;
             this.iconUrl = iconUrl;
         }

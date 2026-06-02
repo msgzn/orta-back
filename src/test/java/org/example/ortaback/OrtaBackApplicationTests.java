@@ -1,18 +1,17 @@
 package org.example.ortaback;
 
-import org.junit.jupiter.api.Disabled;
+import org.example.ortaback.testsupport.AbstractIntegrationTest;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
 
 /**
- * Smoke-test on full Spring context. Disabled by default — поднимает реальный
- * контекст, который требует живую БД с PostGIS + pgvector. Включить после
- * подключения Testcontainers-итерации (postgis-pgvector образ + Hibernate
- * spatial dialect автоопределение).
+ * Smoke-тест полного Spring-контекста поверх РЕАЛЬНОГО PostgreSQL
+ * (PostGIS + pgvector) через Testcontainers — см. {@link AbstractIntegrationTest}.
+ *
+ * <p>Проверяет, что контекст поднимается целиком и Hibernate (ddl-auto:update)
+ * успешно создаёт схему, включая geometry- и {@code vector(384)}-колонки,
+ * а ApplicationRunner-сидеры (категории, вузы) отрабатывают без ошибок.
  */
-@SpringBootTest
-@Disabled("Requires real PostgreSQL with PostGIS + pgvector — enable when Testcontainers setup is in place")
-class OrtaBackApplicationTests {
+class OrtaBackApplicationTests extends AbstractIntegrationTest {
 
     @Test
     void contextLoads() {

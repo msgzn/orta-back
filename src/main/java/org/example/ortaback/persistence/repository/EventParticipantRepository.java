@@ -1,6 +1,7 @@
 package org.example.ortaback.persistence.repository;
 
 import org.example.ortaback.persistence.models.EventParticipant;
+import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -24,6 +25,9 @@ public interface EventParticipantRepository extends JpaRepository<EventParticipa
 
     long countByEventIdAndStatus(Long eventId, ParticipantStatus status);
 
+    /** Сколько событий, где пользователь сейчас числится с заданным статусом (агрегаты профиля, ТЗ §4.5). */
+    long countByUserIdAndStatus(Long userId, ParticipantStatus status);
+
     /**
      * Список id событий, в которых пользователь сейчас числится с заданным
      * статусом. Используется приватной маскировкой координат: креатор и
@@ -38,6 +42,20 @@ public interface EventParticipantRepository extends JpaRepository<EventParticipa
             """)
     List<Long> findEventIdsByUserIdAndStatus(@Param("userId") Long userId,
                                              @Param("status") ParticipantStatus status);
+
+    /**
+     * Пользователи, числящиеся в событии с заданным статусом. Используется
+     * генерацией уведомлений (ТЗ §4.2): RATE_PROMPT по завершении и
+     * EVENT_REMINDER из планировщика рассылаются всем {@code JOINED}.
+     */
+    @Query("""
+            SELECT ep.user
+              FROM EventParticipant ep
+             WHERE ep.event.id = :eventId
+               AND ep.status   = :status
+            """)
+    List<User> findUsersByEventIdAndStatus(@Param("eventId") Long eventId,
+                                           @Param("status") ParticipantStatus status);
 
     /**
      * Batched-подсчёт активных участников для пачки событий — одним SQL

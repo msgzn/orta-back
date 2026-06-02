@@ -14,6 +14,7 @@ import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.dto.response.PublicProfileDto;
 import org.example.ortaback.dto.response.ReputationDto;
 import org.example.ortaback.dto.response.UserProfileDto;
+import org.example.ortaback.dto.response.UserStatsDto;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
 import org.example.ortaback.service.EventService;
@@ -174,5 +175,11 @@ public class UserController {
     @GetMapping("/{id}/public-profile")
     public PublicProfileDto publicProfile(@PathVariable Long id) {
         return reviewService.getPublicProfile(id);
+    }
+
+    @Operation(summary = "Агрегаты профиля: создано/участий/посещено/отменено + attendanceRate (ТЗ §4.5)")
+    @GetMapping("/me/stats")
+    public UserStatsDto myStats(@AuthenticationPrincipal User currentUser) {
+        return reviewService.getUserStats(currentUser.getId());
     }
 }

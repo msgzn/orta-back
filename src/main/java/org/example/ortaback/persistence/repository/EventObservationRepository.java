@@ -17,6 +17,9 @@ public interface EventObservationRepository extends JpaRepository<EventObservati
 
     void deleteByEventIdAndUserId(Long eventId, Long userId);
 
+    /** Сколько пользователей наблюдают за событием — для {@code observersCount} в карточке. */
+    long countByEventId(Long eventId);
+
     Page<EventObservation> findByUserId(Long userId, Pageable pageable);
 
     /**

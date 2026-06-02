@@ -49,6 +49,13 @@ public record EventDetailDto(
 
         long participantsCount,
 
+        /**
+         * Сколько пользователей «наблюдают» за событием (Observe) — реальный
+         * COUNT по {@code event_observation}. В отличие от участников,
+         * наблюдатели не входят в capacity и не видны в списке участников.
+         */
+        long observersCount,
+
         /** Hero / обложка события из S3. {@code null} → фронт показывает плейсхолдер. */
         String coverImageUrl
 ) {}

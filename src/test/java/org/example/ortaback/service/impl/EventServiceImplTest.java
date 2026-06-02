@@ -2,8 +2,13 @@ package org.example.ortaback.service.impl;
 
 import org.example.ortaback.dto.geo.EventDetailDto;
 import org.example.ortaback.dto.request.EventCreateRequestDto;
+import org.example.ortaback.dto.request.EventSearchCriteria;
 import org.example.ortaback.dto.request.EventUpdateRequestDto;
+import org.example.ortaback.dto.response.CreatorMiniDto;
+import org.example.ortaback.dto.response.EventFeedItemDto;
+import org.example.ortaback.dto.response.PageDto;
 import org.example.ortaback.exception.EventStateException;
+import org.example.ortaback.exception.InvalidCoordinatesException;
 import org.example.ortaback.exception.ResourceAlreadyExistsException;
 import org.example.ortaback.exception.ResourceNotFoundException;
 import org.example.ortaback.geo.CoordinateValidator;
@@ -16,17 +21,23 @@ import org.example.ortaback.persistence.models.EventParticipant;
 import org.example.ortaback.persistence.models.User;
 import org.example.ortaback.persistence.models.enums.EventStatus;
 import org.example.ortaback.persistence.models.enums.LocationPrecision;
+import org.example.ortaback.persistence.models.enums.NotificationType;
 import org.example.ortaback.persistence.models.enums.ParticipantStatus;
 import org.example.ortaback.persistence.models.enums.UserRole;
 import org.example.ortaback.persistence.repository.CategoryRepository;
 import org.example.ortaback.persistence.repository.EventParticipantRepository;
 import org.example.ortaback.persistence.repository.EventRepository;
+import org.example.ortaback.service.ChatService;
+import org.example.ortaback.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.time.LocalDateTime;
@@ -38,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,6 +68,8 @@ class EventServiceImplTest {
     @Mock EventMapMapper mapper;
     @Mock ParticipantMapper participantMapper;
     @Mock org.example.ortaback.storage.StorageService storageService;
+    @Mock NotificationService notificationService;
+    @Mock ChatService chatService;
 
     EventServiceImpl eventService;
 
@@ -69,7 +83,8 @@ class EventServiceImplTest {
         eventService = new EventServiceImpl(
                 eventRepository, participantRepository, observationRepository,
                 categoryRepository, coordinateValidator, privacyMasker,
-                geoProperties, mapper, participantMapper, storageService);
+                geoProperties, mapper, participantMapper, storageService,
+                notificationService, chatService);
     }
 
     private Event activeEvent(int max) {
@@ -104,7 +119,7 @@ class EventServiceImplTest {
             e.setId(100L);
             return e;
         });
-        when(mapper.toDetail(any(), any(), eq(1L))).thenReturn(mockDetail());
+        when(mapper.toDetail(any(), any(), eq(1L), eq(0L))).thenReturn(mockDetail());
 
         EventDetailDto detail = eventService.createEvent(request, creator);
 
@@ -141,6 +156,63 @@ class EventServiceImplTest {
     }
 
     // =======================================================================
+    //  getEvent
+    // =======================================================================
+
+    @Test
+    void getEvent_passesRealParticipantAndObserverCountsToMapper() {
+        Event event = activeEvent(10);
+        when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
+        when(participantRepository.countByEventIdAndStatus(100L, ParticipantStatus.JOINED)).thenReturn(3L);
+        when(observationRepository.countByEventId(100L)).thenReturn(7L);
+        when(mapper.toDetail(any(), any(), eq(3L), eq(7L))).thenReturn(mockDetail());
+
+        EventDetailDto detail = eventService.getEvent(100L, creator);
+
+        assertThat(detail).isNotNull();
+        verify(mapper).toDetail(any(), any(), eq(3L), eq(7L));
+    }
+
+    // =======================================================================
+    //  searchEvents (ТЗ §4.3)
+    // =======================================================================
+
+    @Test
+    void searchEvents_mapsRepositoryPageToFeedAndForwardsCriteria() {
+        Event event = activeEvent(10);
+        Page<Event> repoPage = new PageImpl<>(List.of(event));
+        when(eventRepository.search(
+                any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
+                any(Pageable.class))).thenReturn(repoPage);
+        when(participantRepository.countActiveParticipantsByEventIds(any())).thenReturn(List.of());
+        when(participantRepository.findEventIdsByUserIdAndStatus(1L, ParticipantStatus.JOINED))
+                .thenReturn(List.of());
+        when(mapper.toFeedItem(any(), any(), anyLong())).thenReturn(feedItem());
+
+        EventSearchCriteria criteria = new EventSearchCriteria(
+                "  football  ", 10L, null, null, null, null, null, true, null, null, 30f);
+        PageDto<EventFeedItemDto> result = eventService.searchEvents(criteria, 0, 20, creator);
+
+        assertThat(result.content()).hasSize(1);
+        assertThat(result.totalElements()).isEqualTo(1L);
+        // blankToNull тримит q; гео-фильтры остаются null (не передавались).
+        verify(eventRepository).search(
+                eq("football"), eq(10L), isNull(), isNull(), isNull(), isNull(), isNull(),
+                eq(true), isNull(), isNull(), eq(30f), any(Pageable.class));
+    }
+
+    @Test
+    void searchEvents_partialGeo_throwsInvalidCoordinates() {
+        // lat + lng без maxDistanceM — неполная гео-тройка → ошибка ещё до БД.
+        EventSearchCriteria criteria = new EventSearchCriteria(
+                null, null, null, null, 43.2, 76.9, null, null, null, null, null);
+
+        assertThatThrownBy(() -> eventService.searchEvents(criteria, 0, 20, creator))
+                .isInstanceOf(InvalidCoordinatesException.class)
+                .hasMessageContaining("together");
+    }
+
+    // =======================================================================
     //  updateEvent / cancelEvent — authorization
     // =======================================================================
 
@@ -160,7 +232,7 @@ class EventServiceImplTest {
     void updateEvent_creatorAllowed() {
         Event event = activeEvent(10);
         when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
-        when(mapper.toDetail(any(), any(), anyLong())).thenReturn(mockDetail());
+        when(mapper.toDetail(any(), any(), anyLong(), anyLong())).thenReturn(mockDetail());
 
         EventUpdateRequestDto request = new EventUpdateRequestDto(
                 "New title", null, null, null, null, null, null, null, null, null, null, null, null, null);
@@ -174,7 +246,7 @@ class EventServiceImplTest {
     void updateEvent_adminAllowedEvenIfNotCreator() {
         Event event = activeEvent(10);
         when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
-        when(mapper.toDetail(any(), any(), anyLong())).thenReturn(mockDetail());
+        when(mapper.toDetail(any(), any(), anyLong(), anyLong())).thenReturn(mockDetail());
 
         EventUpdateRequestDto request = new EventUpdateRequestDto(
                 null, null, null, null, null, null, null, null, null, null, null, null, null, EventStatus.DONE);
@@ -286,6 +358,52 @@ class EventServiceImplTest {
         verify(participantRepository, never()).countByEventIdAndStatus(anyLong(), any());
     }
 
+    @Test
+    void joinEvent_freshJoin_emitsEventJoinNotificationToCreator() {
+        Event event = activeEvent(0);
+        event.setMaxParticipants(null);
+        when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
+        when(participantRepository.findByEventIdAndUserId(100L, 2L)).thenReturn(Optional.empty());
+
+        eventService.joinEvent(100L, other);
+
+        verify(notificationService).create(
+                eq(creator), eq(NotificationType.EVENT_JOIN), eq(other), eq(event), any());
+    }
+
+    @Test
+    void joinEvent_creatorJoiningOwnEvent_doesNotSelfNotify() {
+        Event event = activeEvent(0);
+        event.setMaxParticipants(null);
+        when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
+        when(participantRepository.findByEventIdAndUserId(100L, 1L)).thenReturn(Optional.empty());
+
+        eventService.joinEvent(100L, creator);   // креатор присоединяется к своему событию
+
+        verify(notificationService, never()).create(any(), any(), any(), any(), any());
+    }
+
+    // =======================================================================
+    //  finishEvent → RATE_PROMPT (ТЗ §4.2)
+    // =======================================================================
+
+    @Test
+    void finishEvent_emitsRatePromptToJoinedParticipantsAndCreator() {
+        Event event = activeEvent(10);
+        when(eventRepository.findById(100L)).thenReturn(Optional.of(event));
+        when(participantRepository.findUsersByEventIdAndStatus(100L, ParticipantStatus.JOINED))
+                .thenReturn(List.of(other));
+
+        eventService.finishEvent(100L, creator);
+
+        assertThat(event.getStatus()).isEqualTo(EventStatus.DONE);
+        verify(notificationService).create(
+                eq(other), eq(NotificationType.RATE_PROMPT), isNull(), eq(event), any());
+        // креатора нет в списке JOINED → ему тоже шлём приглашение оценить
+        verify(notificationService).create(
+                eq(creator), eq(NotificationType.RATE_PROMPT), isNull(), eq(event), any());
+    }
+
     // =======================================================================
     //  leaveEvent
     // =======================================================================
@@ -365,7 +483,18 @@ class EventServiceImplTest {
                 10L, "Football", null,
                 1L, "Creator", null, null,
                 0.0f,           // creatorTrustScore
-                1L,
+                1L,             // participantsCount
+                0L,             // observersCount
+                null);
+    }
+
+    private static EventFeedItemDto feedItem() {
+        return new EventFeedItemDto(
+                100L, "Match", "Gym", "Almaty",
+                43.22, 76.85, LocationPrecision.EXACT,
+                LocalDateTime.of(2026, 6, 1, 18, 0), 90, 10, 1L, null, EventStatus.ACTIVE,
+                10L, "Football", null,
+                new CreatorMiniDto(1L, "Creator", null, null, 0.0f),
                 null);
     }
 }

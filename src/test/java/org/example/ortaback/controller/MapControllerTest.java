@@ -54,7 +54,7 @@ class MapControllerTest extends MockMvcTestSupport {
     void nearby_withExplicitRadius_returnsMarkers() throws Exception {
         when(eventService.findNearbyEvents(eq(43.22), eq(76.85), eq(5000.0), any()))
                 .thenReturn(List.of(new EventMapMarkerDto(
-                        100L, "Match", 43.22, 76.85, null, 3L, LocationPrecision.EXACT)));
+                        100L, "Match", 43.22, 76.85, null, null, null, 3L, LocationPrecision.EXACT)));
 
         mvc.perform(get("/api/v1/map/events/nearby")
                         .param("lat", "43.22").param("lng", "76.85").param("radius", "5000"))

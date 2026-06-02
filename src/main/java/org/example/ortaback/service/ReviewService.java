@@ -5,6 +5,7 @@ import org.example.ortaback.dto.request.PromoterReviewRequestDto;
 import org.example.ortaback.dto.request.VenueRatingRequestDto;
 import org.example.ortaback.dto.response.PublicProfileDto;
 import org.example.ortaback.dto.response.ReputationDto;
+import org.example.ortaback.dto.response.UserStatsDto;
 import org.example.ortaback.persistence.models.User;
 
 public interface ReviewService {
@@ -45,4 +46,12 @@ public interface ReviewService {
 
     /** Публичный профиль другого пользователя — для «Check the owner». */
     PublicProfileDto getPublicProfile(Long userId);
+
+    /**
+     * Агрегаты активности пользователя для экрана профиля (ТЗ §4.5):
+     * создано/участий/посещено/отменено + attendanceRate. {@code avgRating}
+     * всегда {@code null} — звёздного рейтинга человека в модели нет
+     * (см. {@link UserStatsDto}).
+     */
+    UserStatsDto getUserStats(Long userId);
 }
